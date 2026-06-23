@@ -215,28 +215,32 @@ pub async fn analyze_with_openai(transcript: String, api_key: String) -> Result<
 
 #[tauri::command]
 pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Result<String, String> {
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
-
     let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
+    let whisper_path = get_sidecar_path(&app_handle, "whisper-cli")?;
+
     let temp_dir = std::env::temp_dir();
     let temp_wav = temp_dir.join("clipmax_audio.wav");
     let model_path = temp_dir.join("ggml-base.bin");
     
-    // 1. Download whisper model if it doesn't exist
+    // 1. Download whisper model if it doesn't exist (~150MB, only first time)
     if !model_path.exists() {
-        Command::new("curl")
+        println!("[whisper] Downloading ggml-base.bin model (~150MB), first time only...");
+        let curl_out = std::process::Command::new("curl")
             .args([
-                "-L", 
+                "-L", "--progress-bar",
                 "-o", &model_path.to_string_lossy(),
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
             ])
             .output()
             .map_err(|e| format!("Failed to download model: {}", e))?;
+        if !curl_out.status.success() {
+            return Err(format!("Model download failed: {}", String::from_utf8_lossy(&curl_out.stderr)));
+        }
+        println!("[whisper] Model downloaded successfully.");
     }
 
     // 2. Extract audio to 16kHz WAV
-    let ffmpeg_out = Command::new(&ffmpeg_path)
+    let ffmpeg_out = std::process::Command::new(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
@@ -249,18 +253,17 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
         return Err(format!("FFmpeg failed: {}", String::from_utf8_lossy(&ffmpeg_out.stderr)));
     }
 
-    // 3. Run whisper-cli
-    let output = Command::new("whisper-cli")
-        .env("PATH", &new_path)
+    // 3. Run whisper-cli sidecar
+    let output = std::process::Command::new(&whisper_path)
         .args([
             "-m", &model_path.to_string_lossy(),
             "-f", &temp_wav.to_string_lossy(),
             "-oj",
             "-l", "id",
-            "-of", &temp_wav.to_string_lossy() // Outputs to clipmax_audio.wav.json
+            "-of", &temp_wav.to_string_lossy()
         ])
         .output()
-        .map_err(|e| format!("whisper-cli failed: {}. Make sure 'brew install whisper-cpp' is installed.", e))?;
+        .map_err(|e| format!("whisper-cli failed: {}", e))?;
 
     if !output.status.success() {
         return Err(format!("whisper-cli error: {}", String::from_utf8_lossy(&output.stderr)));
@@ -403,28 +406,31 @@ pub struct WordTiming {
 
 #[tauri::command]
 pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_time: f64, app_handle: AppHandle) -> Result<String, String> {
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
-
     let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
+    let whisper_path = get_sidecar_path(&app_handle, "whisper-cli")?;
+
     let temp_dir = std::env::temp_dir();
-    let temp_wav = temp_dir.join(format!("clipmax_seg_{}_{}.wav", start_time, end_time));
+    let temp_wav = temp_dir.join(format!("clipmax_seg_{}_{}.wav", start_time as u64, end_time as u64));
     let model_path = temp_dir.join("ggml-base.bin");
     
-    // 1. Download model if missing
+    // 1. Download model if missing (~150MB, only first time)
     if !model_path.exists() {
-        Command::new("curl")
+        println!("[whisper] Downloading ggml-base.bin model (~150MB), first time only...");
+        let curl_out = std::process::Command::new("curl")
             .args([
-                "-L", 
+                "-L", "--progress-bar",
                 "-o", &model_path.to_string_lossy(),
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
             ])
             .output()
             .map_err(|e| format!("Failed to download model: {}", e))?;
+        if !curl_out.status.success() {
+            return Err(format!("Model download failed: {}", String::from_utf8_lossy(&curl_out.stderr)));
+        }
     }
 
     // 2. Slice video and convert to 16kHz WAV
-    let ffmpeg_out = Command::new(&ffmpeg_path)
+    let ffmpeg_out = std::process::Command::new(&ffmpeg_path)
         .args([
             "-y", 
             "-ss", &start_time.to_string(),
@@ -440,18 +446,16 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
         return Err(format!("FFmpeg failed: {}", String::from_utf8_lossy(&ffmpeg_out.stderr)));
     }
 
-    // 3. Run whisper-cli
-    // We use -ml 1 (max len 1) with -sow (split on word) to force single word segments.
-    let output = Command::new("whisper-cli")
-        .env("PATH", &new_path)
+    // 3. Run whisper-cli sidecar — force word-level timestamps
+    let output = std::process::Command::new(&whisper_path)
         .args([
             "-m", &model_path.to_string_lossy(),
             "-f", &temp_wav.to_string_lossy(),
             "-oj",
             "-l", "id",
             "-sow",
-            "-ml", "1", 
-            "-of", &temp_wav.to_string_lossy() // Outputs to clipmax_seg_X_Y.wav.json
+            "-ml", "1",
+            "-of", &temp_wav.to_string_lossy()
         ])
         .output()
         .map_err(|e| format!("whisper-cli failed: {}", e))?;
@@ -461,7 +465,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
     }
 
     // 4. Read the generated JSON
-    let json_path = temp_dir.join(format!("clipmax_seg_{}_{}.wav.json", start_time, end_time));
+    let json_path = temp_dir.join(format!("clipmax_seg_{}_{}.wav.json", start_time as u64, end_time as u64));
     let transcript = std::fs::read_to_string(&json_path)
         .map_err(|e| format!("Failed to read transcript JSON: {}", e))?;
 

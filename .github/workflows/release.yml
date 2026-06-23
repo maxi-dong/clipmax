@@ -36,8 +36,75 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
-      - name: download sidecar binaries
+      - name: download sidecar binaries (ffmpeg + yt-dlp)
         run: npm run download-sidecars
+
+      - name: build whisper-cli from source (macOS universal)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          WHISPER_VERSION="v1.9.1"
+          echo "Cloning whisper.cpp ${WHISPER_VERSION}..."
+          git clone --depth 1 --branch ${WHISPER_VERSION} https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-cpp
+          cd /tmp/whisper-cpp
+
+          echo "Building for arm64..."
+          cmake -B build-arm64 -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_SERVER=OFF
+          cmake --build build-arm64 --config Release --target whisper-cli -j$(sysctl -n hw.ncpu)
+
+          echo "Building for x86_64..."
+          cmake -B build-x86 -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_SERVER=OFF
+          cmake --build build-x86 --config Release --target whisper-cli -j$(sysctl -n hw.ncpu)
+
+          echo "Creating universal binary with lipo..."
+          BINARIES_DIR="${GITHUB_WORKSPACE}/src-tauri/binaries"
+          mkdir -p "${BINARIES_DIR}"
+          lipo -create \
+            -output "${BINARIES_DIR}/whisper-cli-universal-apple-darwin" \
+            build-arm64/bin/whisper-cli \
+            build-x86/bin/whisper-cli
+          chmod +x "${BINARIES_DIR}/whisper-cli-universal-apple-darwin"
+
+          # Also keep individual arch copies for Tauri
+          cp build-arm64/bin/whisper-cli "${BINARIES_DIR}/whisper-cli-aarch64-apple-darwin"
+          cp build-x86/bin/whisper-cli   "${BINARIES_DIR}/whisper-cli-x86_64-apple-darwin"
+          chmod +x "${BINARIES_DIR}/whisper-cli-aarch64-apple-darwin"
+          chmod +x "${BINARIES_DIR}/whisper-cli-x86_64-apple-darwin"
+          echo "whisper-cli universal binary built successfully."
+          ls -lh "${BINARIES_DIR}/"
+
+      - name: download whisper-cli (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $WHISPER_VERSION = "v1.9.1"
+          $URL = "https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-bin-x64.zip"
+          $BINARIES_DIR = "${env:GITHUB_WORKSPACE}\src-tauri\binaries"
+          New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
+          $TMP_ZIP = "${env:RUNNER_TEMP}\whisper-win.zip"
+          Write-Host "Downloading whisper-bin-x64.zip..."
+          Invoke-WebRequest -Uri $URL -OutFile $TMP_ZIP
+          Expand-Archive -Path $TMP_ZIP -DestinationPath "${env:RUNNER_TEMP}\whisper-win" -Force
+          # Find whisper-cli.exe
+          $WHISPER_EXE = Get-ChildItem -Recurse "${env:RUNNER_TEMP}\whisper-win" -Filter "whisper-cli.exe" | Select-Object -First 1
+          if (-not $WHISPER_EXE) {
+            # Fallback: try 'main.exe' (older naming)
+            $WHISPER_EXE = Get-ChildItem -Recurse "${env:RUNNER_TEMP}\whisper-win" -Filter "main.exe" | Select-Object -First 1
+          }
+          if ($WHISPER_EXE) {
+            Copy-Item $WHISPER_EXE.FullName "${BINARIES_DIR}\whisper-cli-x86_64-pc-windows-msvc.exe"
+            Write-Host "Saved whisper-cli Windows sidecar."
+          } else {
+            Write-Host "WARNING: whisper-cli.exe not found in zip. Listing contents:"
+            Get-ChildItem -Recurse "${env:RUNNER_TEMP}\whisper-win"
+          }
 
       - name: Build and Publish
         uses: tauri-apps/tauri-action@v0

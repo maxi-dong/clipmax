@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ClipMax",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "identifier": "com.clipmax.app",
   "build": {
     "frontendDist": "../dist",
@@ -35,7 +35,8 @@
     "targets": "all",
     "externalBin": [
       "binaries/ffmpeg",
-      "binaries/yt-dlp"
+      "binaries/yt-dlp",
+      "binaries/whisper-cli"
     ],
     "icon": [
       "icons/32x32.png",
