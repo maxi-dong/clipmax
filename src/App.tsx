@@ -33,6 +33,7 @@ function App() {
   const [isAIDialogOpen, setIsAIDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
+  const [exportError, setExportError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const currentTimeRef = useRef(currentTime);
@@ -367,9 +368,10 @@ function App() {
 
   const handleStartExport = useCallback(async (config: ExportConfig) => {
     setShowExportDialog(false);
+    setExportError(null);
     
     if (!videoPath) {
-      message("Error: Video path not found. Please re-import the video using the 'Browse Files' button.", { title: 'Error', kind: 'error' });
+      setExportError("Video path not found. Please re-import the video using the 'Browse Files' button.");
       return;
     }
 
@@ -385,7 +387,15 @@ function App() {
       message(result as string, { title: 'Success', kind: 'info' });
     } catch (e) {
       console.error(e);
-      message(`Export failed: ${e}`, { title: 'Error', kind: 'error' });
+      // Extract only the meaningful error line, not the full ffmpeg banner
+      const fullError = String(e);
+      const lines = fullError.split('\n');
+      // Find the first line with actual error info (starts with 'Error', 'Failed', or contains 'Invalid')
+      const meaningfulLine = lines.find(l =>
+        /error|failed|invalid|no such|cannot/i.test(l) &&
+        !/ffmpeg version|built with|configuration:|lib|Copyright/i.test(l)
+      ) || lines[0];
+      setExportError(meaningfulLine.trim());
     } finally {
       setIsExporting(false);
     }
@@ -676,6 +686,43 @@ function App() {
             <p style={{ color: 'var(--text-secondary)' }}>
               Processed {exportProgress.done} of {exportProgress.total} clips
             </p>
+          </div>
+        </div>
+      )}
+
+      {exportError && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setExportError(null)}>
+          <div className="modal" style={{ width: '480px', padding: '28px', position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setExportError(null)}
+              style={{
+                position: 'absolute', top: '14px', right: '14px',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-secondary)', fontSize: '20px', lineHeight: 1,
+                padding: '4px 8px', borderRadius: '6px',
+              }}
+              title="Close"
+              aria-label="Close error dialog"
+            >✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '28px' }}>⚠️</span>
+              <h2 style={{ margin: 0, fontSize: '17px' }}>Export Failed</h2>
+            </div>
+            <p style={{
+              background: 'var(--bg-tertiary)', borderRadius: '8px',
+              padding: '12px 14px', fontSize: '13px', lineHeight: '1.6',
+              color: 'var(--text-secondary)', margin: '0 0 20px',
+              wordBreak: 'break-word'
+            }}>
+              {exportError}
+            </p>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%' }}
+              onClick={() => setExportError(null)}
+            >
+              OK
+            </button>
           </div>
         </div>
       )}
