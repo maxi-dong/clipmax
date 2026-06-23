@@ -6,6 +6,7 @@ interface TimelineProps {
   duration: number;
   currentTime: number;
   clips: Clip[];
+  selectedClipId: string | null;
   markIn: number | null;
   markOut: number | null;
   onSeek: (time: number) => void;
@@ -13,6 +14,7 @@ interface TimelineProps {
   onMarkOut: () => void;
   onAddClip: () => void;
   onUpdateClip: (id: string, startTime: number, endTime: number) => void;
+  onSelectClip: (id: string, seekToStart?: boolean) => void;
   videoSrc: string | null;
 }
 
@@ -20,6 +22,7 @@ const Timeline: React.FC<TimelineProps> = ({
   duration,
   currentTime,
   clips,
+  selectedClipId,
   markIn,
   markOut,
   onSeek,
@@ -27,6 +30,7 @@ const Timeline: React.FC<TimelineProps> = ({
   onMarkOut,
   onAddClip,
   onUpdateClip,
+  onSelectClip,
   videoSrc,
 }) => {
   const waveformRef = useRef<HTMLCanvasElement>(null);
@@ -320,19 +324,42 @@ const Timeline: React.FC<TimelineProps> = ({
           </span>
         </div>
 
-        {/* Zoom indicator */}
-        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
-          {zoom > 1 ? `🔍 ${zoom.toFixed(1)}x` : ''}
-        </span>
-        {zoom > 1 && (
-          <button
-            className="timeline__btn"
-            onClick={() => { setZoom(1); setScrollOffset(0); }}
-            title="Reset zoom"
-          >
-            Fit
-          </button>
-        )}
+        {/* Zoom controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} id="timeline-zoom-controls">
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
+            Zoom
+          </span>
+          <input
+            type="range"
+            min="1"
+            max="30"
+            step="0.5"
+            value={zoom}
+            onChange={(e) => {
+              const newZoom = parseFloat(e.target.value);
+              setZoom(newZoom);
+              setScrollOffset((prev) => clamp(prev, 0, Math.max(0, 1 - 1 / newZoom)));
+            }}
+            className="timeline__zoom-slider"
+            style={{ width: '80px', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            title="Adjust timeline zoom"
+            id="timeline-zoom-slider"
+          />
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', minWidth: '30px', textAlign: 'right' }} id="zoom-value-label">
+            {zoom.toFixed(1)}x
+          </span>
+          {zoom > 1 && (
+            <button
+              className="timeline__btn"
+              onClick={() => { setZoom(1); setScrollOffset(0); }}
+              title="Reset zoom"
+              id="reset-zoom-btn"
+              style={{ padding: '0 6px', height: '22px', fontSize: '10px' }}
+            >
+              Fit
+            </button>
+          )}
+        </div>
       </div>
 
       <div
@@ -346,7 +373,7 @@ const Timeline: React.FC<TimelineProps> = ({
         <canvas ref={waveformRef} className="timeline__waveform-canvas" id="waveform-canvas" />
 
         {/* Clip regions with drag handles */}
-        {clips.map((clip) => {
+        {clips.map((clip, index) => {
           if (duration <= 0) return null;
           const left = timeToPercent(clip.startTime);
           const right = timeToPercent(clip.endTime);
@@ -354,13 +381,22 @@ const Timeline: React.FC<TimelineProps> = ({
           const rightNum = parseFloat(right);
           if (leftNum < -5 && rightNum < -5) return null;
           const widthPct = `${rightNum - leftNum}%`;
+          const isSelected = selectedClipId === clip.id;
 
           return (
             <div
               key={clip.id}
-              className="timeline__clip-region"
+              className={`timeline__clip-region ${isSelected ? 'timeline__clip-region--selected' : ''}`}
               style={{ left, width: widthPct }}
+              onClick={() => {
+                if (!isSelected) {
+                  onSelectClip(clip.id, false); // select but do not seek to start!
+                }
+              }}
             >
+              <span className="timeline__clip-label" title={`#${index + 1} ${clip.name}`}>
+                #{index + 1} {clip.name}
+              </span>
               {/* Left drag handle */}
               <div
                 className="timeline__drag-handle timeline__drag-handle--left"

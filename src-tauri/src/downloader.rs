@@ -19,7 +19,7 @@ pub async fn download_video(url: String, app_handle: AppHandle) -> Result<String
     // Run yt-dlp
     // Inject Homebrew paths for macOS GUI app bundles
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
     let output_template = temp_dir.join("%(title)s.%(ext)s");
     let err_file_path = temp_dir.join("yt_dlp_err.log");

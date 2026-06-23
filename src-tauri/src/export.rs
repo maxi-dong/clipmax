@@ -173,7 +173,7 @@ pub async fn export_clips(
                         is_complex_layout = true;
                         let next_label = format!("[v{}]", filter_step);
                         filter_complex.push_str(&format!(
-                            "{0}scale=1080:1920,boxblur=20:10[bg_{1}]; {0}scale=1080:-1[fg_{1}]; [bg_{1}][fg_{1}]overlay=y=(H-h)/2{2};",
+                            "{0}scale=1080:1920,boxblur=20:10[bg_{1}]; {0}scale=1080:-1[fg_{1}]; [bg_{1}][fg_{1}]overlay=y=(H-h)/2,setsar=1{2};",
                             current_input_label, filter_step, next_label
                         ));
                         current_input_label = next_label;
@@ -183,16 +183,16 @@ pub async fn export_clips(
                         is_complex_layout = true;
                         let next_label = format!("[v{}]", filter_step);
                         filter_complex.push_str(&format!(
-                            "{0}crop=ih*9/16:ih/2:(iw-ih*9/16)/2:0,scale=1080:960[top_{1}]; \
-                             {0}crop=ih*9/16:ih/2:(iw-ih*9/16)/2:ih/4,scale=1080:960[bottom_{1}]; \
-                             [top_{1}][bottom_{1}]vstack=inputs=2{2};",
+                            "{0}crop=ih*9/8:ih:0:0,scale=1080:960[top_{1}]; \
+                             {0}crop=ih*9/8:ih:iw-ih*9/8:0,scale=1080:960[bottom_{1}]; \
+                             [top_{1}][bottom_{1}]vstack=inputs=2,setsar=1{2};",
                             current_input_label, filter_step, next_label
                         ));
                         current_input_label = next_label;
                         filter_step += 1;
                     }
                     _ => {
-                        res_filter = "crop=ih*9/16:ih,scale=1080:1920".to_string();
+                        res_filter = "crop=ih*9/16:ih,scale=1080:1920,setsar=1".to_string();
                     }
                 }
             }
@@ -303,7 +303,7 @@ pub async fn export_clips(
             let opacity = config.branding.opacity as f32 / 100.0;
             
             let scale_expr = if config.branding.animation_mode == "pulsing" {
-                format!("w='{}*(1+0.1*sin(t*3))':h=-1", target_w)
+                format!("w='{}*(1+0.1*sin(t*3))':h=-1:eval=frame", target_w)
             } else {
                 format!("w={}:h=-1", target_w)
             };
@@ -355,14 +355,19 @@ pub async fn export_clips(
 
         // Apply filters to args
         if filter_step > 0 {
-            let mut final_filter = filter_complex.trim_end_matches(';').to_string();
+            let final_filter = filter_complex.trim_end_matches(';').to_string();
             
             args.push("-filter_complex".to_string());
-            let last_label = format!("[v{}]", filter_step - 1);
-            if final_filter.ends_with(&last_label) {
-                final_filter = final_filter.strip_suffix(&last_label).unwrap().to_string();
-            }
             args.push(final_filter);
+            
+            // Map the video output of the filter graph
+            let last_label = format!("[v{}]", filter_step - 1);
+            args.push("-map".to_string());
+            args.push(last_label);
+            
+            // Map the audio track from the input video (optional format to prevent failure if no audio)
+            args.push("-map".to_string());
+            args.push("0:a?".to_string());
         }
 
         // Quality and Encoding

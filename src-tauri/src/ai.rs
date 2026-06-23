@@ -14,7 +14,7 @@ pub struct AIClipResult {
 pub async fn analyze_audio_spike(video_path: String) -> Result<Vec<AIClipResult>, String> {
     // Inject Homebrew paths for macOS GUI app bundles
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
     // Run ffmpeg with silencedetect
     // We detect silence, so the "non-silent" parts are our spikes/clips.
@@ -83,7 +83,7 @@ pub struct TranscriptionResponse {
 #[tauri::command]
 pub async fn extract_and_transcribe(video_path: String, api_key: String) -> Result<String, String> {
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
     let temp_audio = std::env::temp_dir().join("clipmax_audio.m4a");
 
@@ -253,7 +253,7 @@ pub async fn transcribe_local(video_path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn analyze_with_gemini(video_path: String, api_key: String) -> Result<Vec<AIClipResult>, String> {
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
     let temp_audio = std::env::temp_dir().join("clipmax_gemini_audio.m4a");
 

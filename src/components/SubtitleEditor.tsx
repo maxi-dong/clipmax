@@ -6,6 +6,7 @@ interface SubtitleEditorProps {
   clip: Clip;
   videoPath: string | null;
   onUpdate: (updatedClip: Clip) => void;
+  onClose?: () => void;
 }
 
 const DEFAULT_SUBTITLE_CONFIG: SubtitleConfig = {
@@ -21,7 +22,7 @@ const DEFAULT_SUBTITLE_CONFIG: SubtitleConfig = {
   words: []
 };
 
-const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpdate }) => {
+const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpdate, onClose }) => {
   const [config, setConfig] = useState<SubtitleConfig>(clip.subtitles || DEFAULT_SUBTITLE_CONFIG);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<'transcript' | 'style'>('transcript');
@@ -200,16 +201,45 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
           <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Disabled</span>
         )}
 
-        {/* Right: Enable toggle */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-          <input 
-            type="checkbox" 
-            className="form-toggle"
-            checked={config.enabled} 
-            onChange={(e) => handleChange('enabled', e.target.checked)}
-          />
-          <strong style={{ color: 'var(--text-primary)', fontSize: 'var(--font-size-xs)' }}>Enable</strong>
-        </label>
+        {/* Right: Enable toggle & Close button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              className="form-toggle"
+              checked={config.enabled} 
+              onChange={(e) => handleChange('enabled', e.target.checked)}
+            />
+            <strong style={{ color: 'var(--text-primary)', fontSize: 'var(--font-size-xs)' }}>Enable</strong>
+          </label>
+
+          {onClose && (
+            <>
+              <div style={{ width: '1px', height: '16px', background: 'var(--border-subtle)' }} />
+              <button 
+                onClick={onClose}
+                title="Close Studio"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '4px',
+                  borderRadius: '4px',
+                  transition: 'all var(--transition-fast)'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+              >
+                ✕
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {config.enabled && (

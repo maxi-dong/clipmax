@@ -206,29 +206,52 @@ function App() {
 
         const parsed = JSON.parse(transcript);
         const segments = parsed.transcription || [];
-        const keyword = options.keyword.trim().toLowerCase();
+        
+        // Parse comma-separated keywords and trim them
+        const keywords = options.keyword
+          .split(',')
+          .map((k: string) => k.trim())
+          .filter((k: string) => k.length > 0);
+
+        if (keywords.length === 0) {
+          alert("Please enter a valid keyword to search for.");
+          return;
+        }
+
         const newClips: Clip[] = [];
 
         for (const seg of segments) {
-          if (seg.text && seg.text.toLowerCase().includes(keyword)) {
-            const startSec = (seg.offsets?.from || 0) / 1000;
-            const endSec = (seg.offsets?.to || 0) / 1000;
-            newClips.push({
-              id: `ai-keyword-${Date.now()}-${newClips.length}`,
-              startTime: Math.max(0, startSec - 2),
-              endTime: endSec + 5,
-              name: `Keyword: "${options.keyword}"`
-            });
+          if (seg.text) {
+            const segTextLower = seg.text.toLowerCase();
+            // Find all keywords that match this segment
+            const matchedKeywords = keywords.filter((k: string) => 
+              segTextLower.includes(k.toLowerCase())
+            );
+
+            if (matchedKeywords.length > 0) {
+              const startSec = (seg.offsets?.from || 0) / 1000;
+              const endSec = (seg.offsets?.to || 0) / 1000;
+              
+              // Join the matched keywords for the clip name
+              const matchedStr = matchedKeywords.map((k: string) => `"${k}"`).join(', ');
+              
+              newClips.push({
+                id: `ai-keyword-${Date.now()}-${newClips.length}`,
+                startTime: Math.max(0, startSec - 2),
+                endTime: endSec + 5,
+                name: `Keyword: ${matchedStr}`
+              });
+            }
           }
         }
 
         if (newClips.length === 0) {
-          alert(`Keyword "${options.keyword}" not found in the video.`);
+          alert(`Keywords not found in the video.`);
           return;
         }
 
         setClips((prev) => [...prev, ...newClips]);
-        alert(`Success! Found ${newClips.length} clips matching "${options.keyword}".`);
+        alert(`Success! Found ${newClips.length} clips matching your keywords.`);
 
       } else {
         alert("This mode is currently under development.");
@@ -295,12 +318,22 @@ function App() {
   }, [duration]);
 
   const handleSelectClip = useCallback(
-    (id: string) => {
-      setSelectedClipId(id);
-      const clip = clips.find((c) => c.id === id);
-      if (clip) {
-        setCurrentTime(clip.startTime);
-      }
+    (id: string, seekToStart = true) => {
+      setSelectedClipId((prev) => {
+        const isSelected = prev === id;
+        if (isSelected) {
+          return null; // deselect
+        }
+        
+        // Seek to the clip start time if selected
+        if (seekToStart) {
+          const clip = clips.find((c) => c.id === id);
+          if (clip) {
+            setCurrentTime(clip.startTime);
+          }
+        }
+        return id;
+      });
     },
     [clips],
   );
@@ -530,6 +563,7 @@ function App() {
           duration={duration}
           currentTime={currentTime}
           clips={clips}
+          selectedClipId={selectedClipId}
           markIn={markIn}
           markOut={markOut}
           onSeek={handleSeek}
@@ -537,6 +571,7 @@ function App() {
           onMarkOut={handleMarkOut}
           onAddClip={handleAddClip}
           onUpdateClip={handleUpdateClip}
+          onSelectClip={handleSelectClip}
           videoSrc={videoSrc}
         />
         
@@ -546,6 +581,7 @@ function App() {
               clip={clips.find(c => c.id === selectedClipId)!}
               videoPath={videoPath}
               onUpdate={handleClipFullUpdate}
+              onClose={() => setSelectedClipId(null)}
             />
           </div>
         )}
