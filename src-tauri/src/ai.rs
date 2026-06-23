@@ -2,6 +2,36 @@ use tauri::AppHandle;
 use std::process::Command;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
+use crate::sidecar::get_sidecar_path;
+
+fn to_base64(bytes: &[u8]) -> String {
+    const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        match chunk.len() {
+            3 => {
+                result.push(CHARSET[(chunk[0] >> 2) as usize] as char);
+                result.push(CHARSET[(((chunk[0] & 0x03) << 4) | (chunk[1] >> 4)) as usize] as char);
+                result.push(CHARSET[(((chunk[1] & 0x0F) << 2) | (chunk[2] >> 6)) as usize] as char);
+                result.push(CHARSET[(chunk[2] & 0x3F) as usize] as char);
+            }
+            2 => {
+                result.push(CHARSET[(chunk[0] >> 2) as usize] as char);
+                result.push(CHARSET[(((chunk[0] & 0x03) << 4) | (chunk[1] >> 4)) as usize] as char);
+                result.push(CHARSET[((chunk[1] & 0x0F) << 2) as usize] as char);
+                result.push('=');
+            }
+            1 => {
+                result.push(CHARSET[(chunk[0] >> 2) as usize] as char);
+                result.push(CHARSET[((chunk[0] & 0x03) << 4) as usize] as char);
+                result.push('=');
+                result.push('=');
+            }
+            _ => unreachable!(),
+        }
+    }
+    result
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AIClipResult {
@@ -11,16 +41,13 @@ pub struct AIClipResult {
 }
 
 #[tauri::command]
-pub async fn analyze_audio_spike(video_path: String) -> Result<Vec<AIClipResult>, String> {
-    // Inject Homebrew paths for macOS GUI app bundles
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+pub async fn analyze_audio_spike(video_path: String, app_handle: AppHandle) -> Result<Vec<AIClipResult>, String> {
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
 
     // Run ffmpeg with silencedetect
     // We detect silence, so the "non-silent" parts are our spikes/clips.
     // noise=-30dB, duration=1s means if audio is louder than -30dB, it's NOT silence.
-    let output = Command::new("ffmpeg")
-        .env("PATH", new_path)
+    let output = Command::new(&ffmpeg_path)
         .args([
             "-i", &video_path,
             "-af", "silencedetect=noise=-30dB:d=1",
@@ -81,15 +108,12 @@ pub struct TranscriptionResponse {
 }
 
 #[tauri::command]
-pub async fn extract_and_transcribe(video_path: String, api_key: String) -> Result<String, String> {
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
-
+pub async fn extract_and_transcribe(video_path: String, api_key: String, app_handle: AppHandle) -> Result<String, String> {
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let temp_audio = std::env::temp_dir().join("clipmax_audio.m4a");
 
     // 1. Extract audio using FFmpeg (32kbps, mono to keep size small for OpenAI < 25MB limit)
-    Command::new("ffmpeg")
-        .env("PATH", &new_path)
+    Command::new(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-vn", "-acodec", "aac", "-b:a", "32k", "-ac", "1",
@@ -190,10 +214,11 @@ pub async fn analyze_with_openai(transcript: String, api_key: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn transcribe_local(video_path: String) -> Result<String, String> {
+pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Result<String, String> {
     let path_env = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let temp_dir = std::env::temp_dir();
     let temp_wav = temp_dir.join("clipmax_audio.wav");
     let model_path = temp_dir.join("ggml-base.bin");
@@ -211,8 +236,7 @@ pub async fn transcribe_local(video_path: String) -> Result<String, String> {
     }
 
     // 2. Extract audio to 16kHz WAV
-    let ffmpeg_out = Command::new("ffmpeg")
-        .env("PATH", &new_path)
+    let ffmpeg_out = Command::new(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
@@ -251,15 +275,12 @@ pub async fn transcribe_local(video_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn analyze_with_gemini(video_path: String, api_key: String) -> Result<Vec<AIClipResult>, String> {
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
-
+pub async fn analyze_with_gemini(video_path: String, api_key: String, app_handle: AppHandle) -> Result<Vec<AIClipResult>, String> {
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let temp_audio = std::env::temp_dir().join("clipmax_gemini_audio.m4a");
 
     // 1. Extract audio using FFmpeg (compressed mono to keep payload small)
-    let ffmpeg_out = Command::new("ffmpeg")
-        .env("PATH", &new_path)
+    let ffmpeg_out = Command::new(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-vn", "-acodec", "aac", "-b:a", "32k", "-ac", "1",
@@ -272,15 +293,10 @@ pub async fn analyze_with_gemini(video_path: String, api_key: String) -> Result<
         return Err(format!("FFmpeg audio extraction failed: {}", String::from_utf8_lossy(&ffmpeg_out.stderr)));
     }
 
-    // 2. Base64 encode the audio file (macOS has base64 built-in)
-    let b64_output = Command::new("base64")
-        .args(["-i", &temp_audio.to_string_lossy()])
-        .output()
-        .map_err(|e| format!("base64 encoding failed: {}", e))?;
-
-    let audio_base64 = String::from_utf8_lossy(&b64_output.stdout)
-        .replace('\n', "")
-        .replace('\r', "");
+    // 2. Base64 encode the audio file using native Rust code
+    let audio_bytes = std::fs::read(&temp_audio)
+        .map_err(|e| format!("Failed to read temporary audio file: {}", e))?;
+    let audio_base64 = to_base64(&audio_bytes);
 
     // 3. Build Gemini API payload — Gemini can natively understand audio!
     let payload = serde_json::json!({
@@ -386,10 +402,11 @@ pub struct WordTiming {
 }
 
 #[tauri::command]
-pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_time: f64) -> Result<String, String> {
+pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_time: f64, app_handle: AppHandle) -> Result<String, String> {
     let path_env = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
 
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let temp_dir = std::env::temp_dir();
     let temp_wav = temp_dir.join(format!("clipmax_seg_{}_{}.wav", start_time, end_time));
     let model_path = temp_dir.join("ggml-base.bin");
@@ -407,8 +424,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
     }
 
     // 2. Slice video and convert to 16kHz WAV
-    let ffmpeg_out = Command::new("ffmpeg")
-        .env("PATH", &new_path)
+    let ffmpeg_out = Command::new(&ffmpeg_path)
         .args([
             "-y", 
             "-ss", &start_time.to_string(),

@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
-    "package:mac": "npm run build && npm run tauri build && ditto -c -k --sequesterRsrc src-tauri/target/release/bundle/macos/ClipMax.app ClipMax_macOS.zip"
+    "download-sidecars": "node scripts/download-sidecars.js",
+    "package:mac": "npm run download-sidecars && npm run build && npm run tauri build && ditto -c -k --sequesterRsrc src-tauri/target/release/bundle/macos/ClipMax.app ClipMax_macOS.zip"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

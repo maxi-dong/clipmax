@@ -3,6 +3,7 @@ mod downloader;
 mod ai;
 mod branding;
 mod antidup;
+mod sidecar;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

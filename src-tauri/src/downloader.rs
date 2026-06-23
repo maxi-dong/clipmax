@@ -2,6 +2,7 @@ use std::process::{Command, Stdio};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 use std::io::{BufRead, BufReader};
+use crate::sidecar::get_sidecar_path;
 
 #[derive(Clone, serde::Serialize)]
 struct DownloadProgressPayload {
@@ -16,16 +17,27 @@ pub async fn download_video(url: String, app_handle: AppHandle) -> Result<String
         std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     }
 
-    // Run yt-dlp
-    // Inject Homebrew paths for macOS GUI app bundles
+    // Resolve sidecar paths
+    let ytdlp_path = get_sidecar_path(&app_handle, "yt-dlp")?;
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
+
+    // Get parent directory of ffmpeg sidecar to inject in PATH for yt-dlp
+    let ffmpeg_dir = ffmpeg_path.parent()
+        .ok_or_else(|| "Failed to get ffmpeg parent directory".to_string())?;
+
+    // Inject the ffmpeg sidecar directory at the beginning of the PATH environment variable
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+    #[cfg(target_os = "windows")]
+    let separator = ";";
+    #[cfg(not(target_os = "windows"))]
+    let separator = ":";
+    let new_path = format!("{}{}{}", ffmpeg_dir.to_string_lossy(), separator, path_env);
 
     let output_template = temp_dir.join("%(title)s.%(ext)s");
     let err_file_path = temp_dir.join("yt_dlp_err.log");
     let err_file = std::fs::File::create(&err_file_path).map_err(|e| e.to_string())?;
     
-    let mut child = Command::new("yt-dlp")
+    let mut child = Command::new(&ytdlp_path)
         .env("PATH", new_path)
         .args([
             &url,
@@ -34,12 +46,13 @@ pub async fn download_video(url: String, app_handle: AppHandle) -> Result<String
             "--no-playlist",
             "--newline",
             "--no-quiet",
-            "--print", "after_move:filepath" 
+            "--print", "after_move:filepath",
+            "--ffmpeg-location", &ffmpeg_path.to_string_lossy()
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::from(err_file))
         .spawn()
-        .map_err(|e| format!("Failed to execute yt-dlp. Is it installed? Error: {}", e))?;
+        .map_err(|e| format!("Failed to execute yt-dlp sidecar: {}", e))?;
 
     let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
     let reader = BufReader::new(stdout);

@@ -3,6 +3,7 @@ use std::process::Command;
 use std::path::{Path, PathBuf};
 use std::fs;
 use tauri::{AppHandle, Emitter};
+use crate::sidecar::get_sidecar_path;
 
 use crate::branding::build_branding_filter;
 use crate::antidup::build_antidup_filter;
@@ -390,11 +391,9 @@ pub async fn export_clips(
 
         println!("Running FFmpeg with args: {:?}", args);
 
-        let path_env = std::env::var("PATH").unwrap_or_default();
-        let new_path = format!("/opt/homebrew/opt/ffmpeg-full/bin:{}:/opt/homebrew/bin:/usr/local/bin", path_env);
+        let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
 
-        let output = Command::new("ffmpeg")
-            .env("PATH", new_path)
+        let output = Command::new(&ffmpeg_path)
             .args(&args)
             .output();
 

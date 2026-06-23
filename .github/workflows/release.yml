@@ -36,6 +36,9 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
+      - name: download sidecar binaries
+        run: npm run download-sidecars
+
       - name: Build and Publish
         uses: tauri-apps/tauri-action@v0
         env:
