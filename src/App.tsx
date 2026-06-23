@@ -1,0 +1,650 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { Clip, AppMode } from './types';
+import { generateId } from './utils';
+import TitleBar from './components/TitleBar';
+import DropZone from './components/DropZone';
+import VideoPlayer from './components/VideoPlayer';
+import Timeline from './components/Timeline';
+import ClipList from './components/ClipList';
+import ExportDialog from './components/ExportDialog';
+import AIDialog from './components/AIDialog';
+import SubtitleEditor from './components/SubtitleEditor';
+import type { ExportConfig } from './components/ExportDialog';
+
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { message } from '@tauri-apps/plugin-dialog';
+import { listen } from '@tauri-apps/api/event';
+
+function App() {
+  // ---- State ----
+  const [mode, setMode] = useState<AppMode>('manual');
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [videoPath, setVideoPath] = useState<string | null>(null);
+  const [videoName, setVideoName] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [markIn, setMarkIn] = useState<number | null>(null);
+  const [markOut, setMarkOut] = useState<number | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [isAIDialogOpen, setIsAIDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+
+  // ---- File Handling ----
+  const loadVideo = useCallback((path: string, url: string, name: string) => {
+    setVideoSrc(url);
+    setVideoPath(path);
+    setVideoName(name);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setClips([]);
+    setMarkIn(null);
+    setMarkOut(null);
+    setSelectedClipId(null);
+  }, []);
+
+  const handleNewProject = useCallback(() => {
+    if (window.confirm("Are you sure you want to start a new project? This will clear all clips and the current video.")) {
+      setVideoSrc(null);
+      setVideoPath(null);
+      setVideoName("");
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setClips([]);
+      setMarkIn(null);
+      setMarkOut(null);
+      setSelectedClipId(null);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file && file.type.startsWith('video/')) {
+        const url = URL.createObjectURL(file);
+        loadVideo('', url, file.name); // No path in web drop
+      }
+    },
+    [loadVideo],
+  );
+
+  // ---- AI Operations ----
+  const handleAIAnalyze = async (aiMode: string, options: any) => {
+    setIsAIDialogOpen(false);
+
+    // Guard: video must be loaded
+    if (!videoSrc) {
+      alert("Please load a video first.");
+      return;
+    }
+
+    // Guard: must have a real filesystem path (not blob:// or empty)
+    if (!videoPath || videoPath.startsWith('blob:')) {
+      alert("AI Mode requires a real file path.\n\nPlease load your video by clicking the drop zone and selecting via the file picker, or use the URL download feature.\n\n(Drag & drop from Finder is not yet supported for AI Mode)");
+      return;
+    }
+
+    console.log("[AI] Starting analysis. Mode:", aiMode, "Path:", videoPath);
+
+    // Show spinner BEFORE doing any work
+    setIsAnalyzing(true);
+
+    // Give React a full frame to paint the spinner overlay
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    try {
+      if (aiMode === 'audio_spike') {
+        console.log("[AI] Calling analyze_audio_spike...");
+        const results = await invoke<any[]>('analyze_audio_spike', { videoPath: videoPath });
+        
+        if (results.length === 0) {
+          alert("No significant audio spikes found in this video.");
+          return;
+        }
+
+        const newClips = results.map((res: any, index: number) => ({
+          id: `ai-clip-${Date.now()}-${index}`,
+          startTime: res.start_time,
+          endTime: res.end_time,
+          name: res.reason || `AI Auto Clip ${index + 1}`
+        }));
+
+        setClips((prev) => [...prev, ...newClips]);
+        alert(`Success! Generated ${newClips.length} AI clips.`);
+
+      } else if (aiMode === 'openai') {
+        if (!options.apiKey) {
+          alert("API Key is required for OpenAI mode.");
+          return;
+        }
+
+        console.log("[AI] Calling extract_and_transcribe...");
+        const transcript = await invoke<string>('extract_and_transcribe', { 
+          videoPath: videoPath, 
+          apiKey: options.apiKey 
+        });
+
+        console.log("[AI] Calling analyze_with_openai...");
+        const results = await invoke<any[]>('analyze_with_openai', { 
+          transcript: transcript, 
+          apiKey: options.apiKey 
+        });
+
+        if (results.length === 0) {
+          alert("OpenAI could not find any interesting moments.");
+          return;
+        }
+
+        const newClips = results.map((res: any, index: number) => ({
+          id: `ai-clip-${Date.now()}-${index}`,
+          startTime: res.start_time,
+          endTime: res.end_time,
+          name: res.reason || `AI GPT Clip ${index + 1}`
+        }));
+
+        setClips((prev) => [...prev, ...newClips]);
+        alert(`Success! Generated ${newClips.length} AI clips.`);
+
+      } else if (aiMode === 'gemini') {
+        if (!options.apiKey) {
+          alert("API Key is required for Gemini mode.");
+          return;
+        }
+
+        console.log("[AI] Calling analyze_with_gemini...");
+        const results = await invoke<any[]>('analyze_with_gemini', { 
+          videoPath: videoPath, 
+          apiKey: options.apiKey 
+        });
+
+        if (results.length === 0) {
+          alert("Gemini could not find any interesting moments.");
+          return;
+        }
+
+        const newClips = results.map((res: any, index: number) => ({
+          id: `ai-clip-${Date.now()}-${index}`,
+          startTime: res.start_time,
+          endTime: res.end_time,
+          name: res.reason || `AI Gemini Clip ${index + 1}`
+        }));
+
+        setClips((prev) => [...prev, ...newClips]);
+        alert(`Success! Generated ${newClips.length} AI clips using Gemini.`);
+
+      } else if (aiMode === 'keyword') {
+        if (!options.keyword || !options.keyword.trim()) {
+          alert("Please enter a keyword to search for.");
+          return;
+        }
+
+        console.log("[AI] Calling transcribe_local...");
+        const transcript = await invoke<string>('transcribe_local', { 
+          videoPath: videoPath 
+        });
+
+        const parsed = JSON.parse(transcript);
+        const segments = parsed.transcription || [];
+        const keyword = options.keyword.trim().toLowerCase();
+        const newClips: Clip[] = [];
+
+        for (const seg of segments) {
+          if (seg.text && seg.text.toLowerCase().includes(keyword)) {
+            const startSec = (seg.offsets?.from || 0) / 1000;
+            const endSec = (seg.offsets?.to || 0) / 1000;
+            newClips.push({
+              id: `ai-keyword-${Date.now()}-${newClips.length}`,
+              startTime: Math.max(0, startSec - 2),
+              endTime: endSec + 5,
+              name: `Keyword: "${options.keyword}"`
+            });
+          }
+        }
+
+        if (newClips.length === 0) {
+          alert(`Keyword "${options.keyword}" not found in the video.`);
+          return;
+        }
+
+        setClips((prev) => [...prev, ...newClips]);
+        alert(`Success! Found ${newClips.length} clips matching "${options.keyword}".`);
+
+      } else {
+        alert("This mode is currently under development.");
+      }
+    } catch (err) {
+      console.error("[AI] Error:", err);
+      alert("AI Analysis failed:\n" + err);
+    } finally {
+      // ALWAYS hide the spinner, no matter what
+      setIsAnalyzing(false);
+    }
+  };
+
+  // ---- Player Controls ----
+  const handlePlayPause = useCallback(() => {
+    setIsPlaying((prev) => !prev);
+  }, []);
+
+  const handleTimeUpdate = useCallback((time: number) => {
+    setCurrentTime(time);
+  }, []);
+
+  const handleDurationLoaded = useCallback((dur: number) => {
+    setDuration(dur);
+  }, []);
+
+  const handleSeek = useCallback((time: number) => {
+    setCurrentTime(time);
+  }, []);
+
+  // ---- Clip Operations ----
+  const handleMarkIn = useCallback(() => {
+    setMarkIn(currentTimeRef.current);
+  }, []);
+
+  const handleMarkOut = useCallback(() => {
+    setMarkOut(currentTimeRef.current);
+  }, []);
+
+  const handleAddClip = useCallback(() => {
+    if (markIn === null || markOut === null || markOut <= markIn) return;
+    const newClip: Clip = {
+      id: generateId(),
+      name: `Clip ${clips.length + 1}`,
+      startTime: markIn,
+      endTime: markOut,
+    };
+    setClips((prev) => [...prev, newClip]);
+    setMarkIn(null);
+    setMarkOut(null);
+  }, [markIn, markOut, clips.length]);
+
+  const handleProcessFullVideo = useCallback(() => {
+    if (duration <= 0) return;
+    const newClip: Clip = {
+      id: generateId(),
+      name: "Video Utuh",
+      startTime: 0,
+      endTime: duration,
+    };
+    setClips((prev) => [...prev, newClip]);
+    setSelectedClipId(newClip.id);
+    setCurrentTime(0);
+  }, [duration]);
+
+  const handleSelectClip = useCallback(
+    (id: string) => {
+      setSelectedClipId(id);
+      const clip = clips.find((c) => c.id === id);
+      if (clip) {
+        setCurrentTime(clip.startTime);
+      }
+    },
+    [clips],
+  );
+
+  const handleDeleteClip = useCallback((id: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== id));
+    setSelectedClipId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const handleRenameClip = useCallback((id: string, name: string) => {
+    setClips((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, name } : c)),
+    );
+  }, []);
+
+  const handleUpdateClip = useCallback((id: string, startTime: number, endTime: number) => {
+    setClips((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, startTime, endTime } : c)),
+    );
+  }, []);
+
+  const handleClipFullUpdate = useCallback((updatedClip: Clip) => {
+    setClips((prev) =>
+      prev.map((c) => (c.id === updatedClip.id ? updatedClip : c)),
+    );
+  }, []);
+
+  const handleExportClick = useCallback(() => {
+    setShowExportDialog(true);
+  }, []);
+
+  const handleStartExport = useCallback(async (config: ExportConfig) => {
+    setShowExportDialog(false);
+    
+    if (!videoPath) {
+      message("Error: Video path not found. Please re-import the video using the 'Browse Files' button.", { title: 'Error', kind: 'error' });
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress({ done: 0, total: clips.length });
+
+    try {
+      const result = await invoke('export_clips', {
+        videoSrc: videoPath,
+        clips,
+        config
+      });
+      message(result as string, { title: 'Success', kind: 'info' });
+    } catch (e) {
+      console.error(e);
+      message(`Export failed: ${e}`, { title: 'Error', kind: 'error' });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [clips, videoPath]);
+
+  // ---- Keyboard Shortcuts ----
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case 'i':
+          handleMarkIn();
+          break;
+        case 'o':
+          handleMarkOut();
+          break;
+        case 'e':
+          handleAddClip();
+          break;
+        case 'arrowleft':
+          e.preventDefault();
+          setCurrentTime((t) => Math.max(0, t - 5));
+          break;
+        case 'arrowright':
+          e.preventDefault();
+          setCurrentTime((t) => Math.min(duration, t + 5));
+          break;
+        case 'delete':
+        case 'backspace':
+          if (selectedClipId) {
+            handleDeleteClip(selectedClipId);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePlayPause, handleMarkIn, handleMarkOut, handleAddClip, duration, selectedClipId, handleDeleteClip]);
+
+  // ---- Global drag-over for window ----
+  useEffect(() => {
+    // 1. Web API fallback (for browser testing / non-tauri context)
+    const handleWindowDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(true);
+    };
+    const handleWindowDragLeave = (e: DragEvent) => {
+      if (
+        e.clientX <= 0 ||
+        e.clientY <= 0 ||
+        e.clientX >= window.innerWidth ||
+        e.clientY >= window.innerHeight
+      ) {
+        setIsDragOver(false);
+      }
+    };
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.type.startsWith('video/')) {
+        const url = URL.createObjectURL(file);
+        loadVideo('', url, file.name); // Fallback for web drop
+      }
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    window.addEventListener('drop', handleWindowDrop);
+
+    // 2. Tauri Native File Drop
+    let unlistenDrop: () => void;
+    let unlistenEnter: () => void;
+    let unlistenLeave: () => void;
+
+    const setupTauriEvents = async () => {
+      // 1. Drop Events
+      unlistenDrop = await listen<{paths: string[]}>('tauri://drop', (event) => {
+        setIsDragOver(false);
+        const paths = event.payload.paths || event.payload; // v1 vs v2 compatibility
+        if (Array.isArray(paths) && paths.length > 0) {
+          const filePath = paths[0];
+          // We assume it's a video. Ideally we should check extension.
+          const url = convertFileSrc(filePath);
+          const name = filePath.split(/[/\\]/).pop() || 'Video';
+          loadVideo(filePath, url, name);
+        }
+      });
+      
+      unlistenEnter = await listen('tauri://drag-enter', () => {
+        setIsDragOver(true);
+      });
+      
+      unlistenLeave = await listen('tauri://drag-leave', () => {
+        setIsDragOver(false);
+      });
+      
+      // 2. Export Progress
+      const unlistenProgress = await listen('export-progress', () => {
+        setExportProgress(prev => ({ ...prev, done: prev.done + 1 }));
+      });
+      
+      return () => {
+        unlistenProgress();
+      }
+    };
+
+    setupTauriEvents();
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+      window.removeEventListener('drop', handleWindowDrop);
+      if (unlistenDrop) unlistenDrop();
+      if (unlistenEnter) unlistenEnter();
+      if (unlistenLeave) unlistenLeave();
+    };
+  }, [loadVideo]);
+
+  return (
+    <div className="app-layout" id="app-layout">
+      <TitleBar
+        mode={mode}
+        onModeChange={setMode}
+        videoName={videoName}
+        onNewProject={handleNewProject}
+      />
+
+      <main className="main-area" id="main-area">
+        {videoSrc ? (
+          <VideoPlayer
+          src={videoSrc}
+          currentTime={currentTime}
+          isPlaying={isPlaying}
+          onTimeUpdate={handleTimeUpdate}
+          onPlayPause={handlePlayPause}
+          onDurationLoaded={handleDurationLoaded}
+          duration={duration}
+          clips={clips}
+        />
+        ) : (
+          <DropZone
+            isDragOver={isDragOver}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onFileSelect={loadVideo}
+          />
+        )}
+      </main>
+
+      <ClipList
+        clips={clips}
+        selectedClipId={selectedClipId}
+        onSelectClip={handleSelectClip}
+        onDeleteClip={handleDeleteClip}
+        onRenameClip={handleRenameClip}
+        onExport={handleExportClick}
+        exportDisabled={clips.length === 0}
+      />
+
+      {videoSrc && (
+        <>
+        <Timeline
+          duration={duration}
+          currentTime={currentTime}
+          clips={clips}
+          markIn={markIn}
+          markOut={markOut}
+          onSeek={handleSeek}
+          onMarkIn={handleMarkIn}
+          onMarkOut={handleMarkOut}
+          onAddClip={handleAddClip}
+          onUpdateClip={handleUpdateClip}
+          videoSrc={videoSrc}
+        />
+        
+        {selectedClipId && (
+          <div style={{ padding: '0 20px', marginBottom: '15px', gridColumn: '1 / -1' }} className="animate-fadeIn">
+            <SubtitleEditor 
+              clip={clips.find(c => c.id === selectedClipId)!}
+              videoPath={videoPath}
+              onUpdate={handleClipFullUpdate}
+            />
+          </div>
+        )}
+
+        {!selectedClipId && (
+          <div style={{ padding: '0 20px', paddingBottom: '20px', gridColumn: '1 / -1' }}>
+            <div className="main-actions" style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className="btn btn--secondary" 
+                onClick={() => setIsAIDialogOpen(true)}
+                disabled={isAnalyzing}
+                style={{ background: 'linear-gradient(45deg, #FF6B6B, #845EC2)', color: 'white', border: 'none', position: 'relative' }}
+              >
+                {isAnalyzing ? "⏳ Analyzing (AI)..." : "✨ Auto Clip (AI)"}
+              </button>
+              <button 
+                className="btn btn--secondary" 
+                onClick={handleProcessFullVideo}
+                disabled={isAnalyzing || duration <= 0}
+                style={{ background: 'linear-gradient(45deg, #4b7bec, #3867d6)', color: 'white', border: 'none' }}
+              >
+                🎬 Proses Video Utuh
+              </button>
+            </div>
+          </div>
+        )}
+        </>
+      )}
+
+      {isAnalyzing && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          color: 'white',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner" style={{
+            width: '50px',
+            height: '50px',
+            border: '5px solid rgba(255, 255, 255, 0.3)',
+            borderTop: '5px solid #FF6B6B',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+          <h2 style={{ margin: 0 }}>AI is thinking...</h2>
+          <p style={{ margin: 0, color: '#aaa' }}>Processing your video. This may take a minute.</p>
+        </div>
+      )}
+
+      {showExportDialog && (
+        <ExportDialog
+          clipCount={clips.length}
+          onClose={() => setShowExportDialog(false)}
+          onExport={handleStartExport}
+        />
+      )}
+
+      {isAIDialogOpen && (
+        <AIDialog
+          isOpen={isAIDialogOpen}
+          onClose={() => setIsAIDialogOpen(false)}
+          onAnalyze={handleAIAnalyze}
+        />
+      )}
+
+      {isExporting && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal" style={{ width: '400px', textAlign: 'center', padding: '30px' }}>
+            <h2 style={{ marginBottom: '15px' }}>🚀 Exporting Clips...</h2>
+            <div style={{ background: 'var(--bg-tertiary)', borderRadius: '10px', height: '10px', width: '100%', overflow: 'hidden', marginBottom: '10px' }}>
+              <div 
+                style={{ 
+                  height: '100%', 
+                  width: `${exportProgress.total === 0 ? 0 : Math.round((exportProgress.done / exportProgress.total) * 100)}%`, 
+                  background: 'var(--accent)',
+                  transition: 'width 0.3s ease'
+                }} 
+              />
+            </div>
+            <p style={{ color: 'var(--text-secondary)' }}>
+              Processed {exportProgress.done} of {exportProgress.total} clips
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
