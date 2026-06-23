@@ -50,6 +50,7 @@ jobs:
           echo "Building for arm64..."
           cmake -B build-arm64 -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DBUILD_SHARED_LIBS=OFF \
             -DWHISPER_BUILD_EXAMPLES=ON \
             -DWHISPER_BUILD_TESTS=OFF \
             -DWHISPER_BUILD_SERVER=OFF
@@ -59,6 +60,7 @@ jobs:
           cmake -B build-x86 -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=x86_64 \
             -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
             -DWHISPER_BUILD_EXAMPLES=ON \
             -DWHISPER_BUILD_TESTS=OFF \
             -DWHISPER_BUILD_SERVER=OFF
