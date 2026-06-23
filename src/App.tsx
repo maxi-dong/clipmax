@@ -35,6 +35,7 @@ function App() {
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
   const [exportError, setExportError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiNotification, setAiNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
@@ -93,25 +94,20 @@ function App() {
   // ---- AI Operations ----
   const handleAIAnalyze = async (aiMode: string, options: any) => {
     setIsAIDialogOpen(false);
+    setAiNotification(null);
 
-    // Guard: video must be loaded
     if (!videoSrc) {
-      alert("Please load a video first.");
+      setAiNotification({ type: 'error', message: 'Please load a video first.' });
       return;
     }
 
-    // Guard: must have a real filesystem path (not blob:// or empty)
-    if (!videoPath || videoPath.startsWith('blob:')) {
-      alert("AI Mode requires a real file path.\n\nPlease load your video by clicking the drop zone and selecting via the file picker, or use the URL download feature.\n\n(Drag & drop from Finder is not yet supported for AI Mode)");
+    if (!videoPath || videoPath.startsWith('blob:') || videoPath === '') {
+      setAiNotification({ type: 'error', message: 'AI Mode requires a real file path.\n\nPlease load your video using the file picker button (Browse Files), not drag & drop.' });
       return;
     }
 
     console.log("[AI] Starting analysis. Mode:", aiMode, "Path:", videoPath);
-
-    // Show spinner BEFORE doing any work
     setIsAnalyzing(true);
-
-    // Give React a full frame to paint the spinner overlay
     await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
@@ -120,7 +116,7 @@ function App() {
         const results = await invoke<any[]>('analyze_audio_spike', { videoPath: videoPath });
         
         if (results.length === 0) {
-          alert("No significant audio spikes found in this video.");
+          setAiNotification({ type: 'info', message: 'No significant audio spikes found.\n\nTip: Try a video with more varied audio (laughter, applause, reactions). This mode works best with talk shows, podcasts, or live events.' });
           return;
         }
 
@@ -132,11 +128,11 @@ function App() {
         }));
 
         setClips((prev) => [...prev, ...newClips]);
-        alert(`Success! Generated ${newClips.length} AI clips.`);
+        setAiNotification({ type: 'success', message: `✅ Generated ${newClips.length} AI clips from audio analysis!` });
 
       } else if (aiMode === 'openai') {
         if (!options.apiKey) {
-          alert("API Key is required for OpenAI mode.");
+          setAiNotification({ type: 'error', message: 'API Key is required for OpenAI mode.' });
           return;
         }
 
@@ -153,7 +149,7 @@ function App() {
         });
 
         if (results.length === 0) {
-          alert("OpenAI could not find any interesting moments.");
+          setAiNotification({ type: 'info', message: 'OpenAI could not find any interesting moments in this video.' });
           return;
         }
 
@@ -165,11 +161,11 @@ function App() {
         }));
 
         setClips((prev) => [...prev, ...newClips]);
-        alert(`Success! Generated ${newClips.length} AI clips.`);
+        setAiNotification({ type: 'success', message: `✅ Generated ${newClips.length} AI clips using OpenAI GPT!` });
 
       } else if (aiMode === 'gemini') {
         if (!options.apiKey) {
-          alert("API Key is required for Gemini mode.");
+          setAiNotification({ type: 'error', message: 'API Key is required for Gemini mode.' });
           return;
         }
 
@@ -180,7 +176,7 @@ function App() {
         });
 
         if (results.length === 0) {
-          alert("Gemini could not find any interesting moments.");
+          setAiNotification({ type: 'info', message: 'Gemini could not find any interesting moments in this video.' });
           return;
         }
 
@@ -192,11 +188,11 @@ function App() {
         }));
 
         setClips((prev) => [...prev, ...newClips]);
-        alert(`Success! Generated ${newClips.length} AI clips using Gemini.`);
+        setAiNotification({ type: 'success', message: `✅ Generated ${newClips.length} AI clips using Gemini!` });
 
       } else if (aiMode === 'keyword') {
         if (!options.keyword || !options.keyword.trim()) {
-          alert("Please enter a keyword to search for.");
+          setAiNotification({ type: 'error', message: 'Please enter a keyword to search for.' });
           return;
         }
 
@@ -208,14 +204,13 @@ function App() {
         const parsed = JSON.parse(transcript);
         const segments = parsed.transcription || [];
         
-        // Parse comma-separated keywords and trim them
         const keywords = options.keyword
           .split(',')
           .map((k: string) => k.trim())
           .filter((k: string) => k.length > 0);
 
         if (keywords.length === 0) {
-          alert("Please enter a valid keyword to search for.");
+          setAiNotification({ type: 'error', message: 'Please enter a valid keyword to search for.' });
           return;
         }
 
@@ -224,7 +219,6 @@ function App() {
         for (const seg of segments) {
           if (seg.text) {
             const segTextLower = seg.text.toLowerCase();
-            // Find all keywords that match this segment
             const matchedKeywords = keywords.filter((k: string) => 
               segTextLower.includes(k.toLowerCase())
             );
@@ -232,8 +226,6 @@ function App() {
             if (matchedKeywords.length > 0) {
               const startSec = (seg.offsets?.from || 0) / 1000;
               const endSec = (seg.offsets?.to || 0) / 1000;
-              
-              // Join the matched keywords for the clip name
               const matchedStr = matchedKeywords.map((k: string) => `"${k}"`).join(', ');
               
               newClips.push({
@@ -247,21 +239,27 @@ function App() {
         }
 
         if (newClips.length === 0) {
-          alert(`Keywords not found in the video.`);
+          setAiNotification({ type: 'info', message: `Keywords not found in this video.\n\nKeywords searched: ${keywords.map((k: string) => `"${k}"`).join(', ')}` });
           return;
         }
 
         setClips((prev) => [...prev, ...newClips]);
-        alert(`Success! Found ${newClips.length} clips matching your keywords.`);
+        setAiNotification({ type: 'success', message: `✅ Found ${newClips.length} clips matching your keywords!` });
 
       } else {
-        alert("This mode is currently under development.");
+        setAiNotification({ type: 'info', message: 'This mode is currently under development.' });
       }
     } catch (err) {
       console.error("[AI] Error:", err);
-      alert("AI Analysis failed:\n" + err);
+      // Extract meaningful error line
+      const fullError = String(err);
+      const lines = fullError.split('\n');
+      const meaningfulLine = lines.find(l =>
+        /error|failed|invalid|no such|cannot|not found/i.test(l) &&
+        !/ffmpeg version|built with|configuration:|lib|Copyright/i.test(l)
+      ) || lines[0];
+      setAiNotification({ type: 'error', message: `AI Analysis failed:\n${meaningfulLine.trim()}` });
     } finally {
-      // ALWAYS hide the spinner, no matter what
       setIsAnalyzing(false);
     }
   };
@@ -720,6 +718,46 @@ function App() {
               className="btn btn-primary"
               style={{ width: '100%' }}
               onClick={() => setExportError(null)}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {aiNotification && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setAiNotification(null)}>
+          <div className="modal" style={{ width: '460px', padding: '28px', position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setAiNotification(null)}
+              style={{
+                position: 'absolute', top: '14px', right: '14px',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-secondary)', fontSize: '20px', lineHeight: 1,
+                padding: '4px 8px', borderRadius: '6px',
+              }}
+              aria-label="Close"
+            >✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '26px' }}>
+                {aiNotification.type === 'success' ? '✅' : aiNotification.type === 'error' ? '❌' : 'ℹ️'}
+              </span>
+              <h2 style={{ margin: 0, fontSize: '16px' }}>
+                {aiNotification.type === 'success' ? 'Analysis Complete' : aiNotification.type === 'error' ? 'Analysis Failed' : 'No Results'}
+              </h2>
+            </div>
+            <p style={{
+              background: 'var(--bg-tertiary)', borderRadius: '8px',
+              padding: '12px 14px', fontSize: '13px', lineHeight: '1.7',
+              color: 'var(--text-secondary)', margin: '0 0 20px',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+            }}>
+              {aiNotification.message}
+            </p>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%' }}
+              onClick={() => setAiNotification(null)}
             >
               OK
             </button>
