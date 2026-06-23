@@ -11,6 +11,7 @@ use crate::antidup::build_antidup_filter;
 #[serde(rename_all = "camelCase")]
 pub struct ExportConfig {
     pub resolution: String,
+    pub vertical_layout: Option<String>,
     pub quality: String,
     pub branding: BrandingConfig,
     #[serde(rename = "antiDup")]
@@ -149,6 +150,7 @@ pub async fn export_clips(
         let mut play_res_x = 1920;
         let mut play_res_y = 1080;
         let mut res_filter = String::new();
+        let mut is_complex_layout = false;
 
         match config.resolution.as_str() {
             "1080p" => {
@@ -162,15 +164,42 @@ pub async fn export_clips(
                 play_res_y = 720;
             }
             "vertical-1080p" => {
-                // Crop center to 9:16 and scale to 1080x1920
-                res_filter = "crop=ih*9/16:ih,scale=1080:1920".to_string();
                 play_res_x = 1080;
                 play_res_y = 1920;
+                
+                let layout = config.vertical_layout.as_deref().unwrap_or("crop");
+                match layout {
+                    "blur" => {
+                        is_complex_layout = true;
+                        let next_label = format!("[v{}]", filter_step);
+                        filter_complex.push_str(&format!(
+                            "{0}scale=1080:1920,boxblur=20:10[bg_{1}]; {0}scale=1080:-1[fg_{1}]; [bg_{1}][fg_{1}]overlay=y=(H-h)/2{2};",
+                            current_input_label, filter_step, next_label
+                        ));
+                        current_input_label = next_label;
+                        filter_step += 1;
+                    }
+                    "split" => {
+                        is_complex_layout = true;
+                        let next_label = format!("[v{}]", filter_step);
+                        filter_complex.push_str(&format!(
+                            "{0}crop=ih*9/16:ih/2:(iw-ih*9/16)/2:0,scale=1080:960[top_{1}]; \
+                             {0}crop=ih*9/16:ih/2:(iw-ih*9/16)/2:ih/4,scale=1080:960[bottom_{1}]; \
+                             [top_{1}][bottom_{1}]vstack=inputs=2{2};",
+                            current_input_label, filter_step, next_label
+                        ));
+                        current_input_label = next_label;
+                        filter_step += 1;
+                    }
+                    _ => {
+                        res_filter = "crop=ih*9/16:ih,scale=1080:1920".to_string();
+                    }
+                }
             }
             _ => {} // original, do nothing
         }
 
-        if !res_filter.is_empty() {
+        if !is_complex_layout && !res_filter.is_empty() {
             let next_label = format!("[v{}]", filter_step);
             filter_complex.push_str(&format!("{}{}{};", current_input_label, res_filter, next_label));
             current_input_label = next_label;
@@ -328,35 +357,12 @@ pub async fn export_clips(
         if filter_step > 0 {
             let mut final_filter = filter_complex.trim_end_matches(';').to_string();
             
-            if has_branding {
-                args.push("-filter_complex".to_string());
-                let last_label = format!("[v{}]", filter_step - 1);
-                if final_filter.ends_with(&last_label) {
-                    final_filter = final_filter.strip_suffix(&last_label).unwrap().to_string();
-                }
-                args.push(final_filter);
-            } else {
-                // If there's no branding, build a simple comma-separated -vf filter chain
-                let mut vf_filters = Vec::new();
-                if !res_filter.is_empty() {
-                    vf_filters.push(res_filter);
-                }
-                if let Some(antidup) = build_antidup_filter(&config.anti_dup) {
-                    vf_filters.push(antidup);
-                }
-                if let Some(sub) = &clip.subtitles {
-                    if sub.enabled && !sub.words.is_empty() {
-                        let temp_dir = std::env::temp_dir();
-                        let safe_path = temp_dir.join(format!("subtitles_{}.ass", clip.id)).to_string_lossy().replace("\\", "/");
-                        vf_filters.push(format!("ass='{}'", safe_path));
-                    }
-                }
-                
-                if !vf_filters.is_empty() {
-                    args.push("-vf".to_string());
-                    args.push(vf_filters.join(","));
-                }
+            args.push("-filter_complex".to_string());
+            let last_label = format!("[v{}]", filter_step - 1);
+            if final_filter.ends_with(&last_label) {
+                final_filter = final_filter.strip_suffix(&last_label).unwrap().to_string();
             }
+            args.push(final_filter);
         }
 
         // Quality and Encoding

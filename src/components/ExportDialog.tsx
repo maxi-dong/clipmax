@@ -8,6 +8,7 @@ interface ExportDialogProps {
 
 export interface ExportConfig {
   resolution: string;
+  verticalLayout?: 'crop' | 'blur' | 'split';
   quality: string;
   branding: {
     enabled: boolean;
@@ -30,6 +31,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ onClose, onExport, clipCoun
   const [activeTab, setActiveTab] = useState<'format' | 'branding' | 'antidup'>('format');
   const [config, setConfig] = useState<ExportConfig>({
     resolution: '1080p',
+    verticalLayout: 'crop',
     quality: 'High',
     branding: {
       enabled: false,
@@ -146,6 +148,21 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ onClose, onExport, clipCoun
                   <option value="vertical-1080p">Vertical (1080x1920)</option>
                 </select>
               </div>
+
+              {config.resolution === 'vertical-1080p' && (
+                <div className="form-group animate-fadeIn">
+                  <label>Vertical Layout Style</label>
+                  <select
+                    value={config.verticalLayout || 'crop'}
+                    onChange={(e) => setConfig({ ...config, verticalLayout: e.target.value as any })}
+                    className="form-control"
+                  >
+                    <option value="crop">🔍 Crop Center (Penuh Fokus Tengah)</option>
+                    <option value="blur">🌫️ Fit (Latar Belakang Buram)</option>
+                    <option value="split">🥞 Split Screen (Layar Tumpuk)</option>
+                  </select>
+                </div>
+              )}
               <div className="form-group">
                 <label>Quality / Bitrate</label>
                 <select
