@@ -138,6 +138,19 @@ async function main() {
       fs.copyFileSync(ffmpegX86File, destFfmpegX86);
       fs.chmodSync(destFfmpegX86, 0o755);
       console.log('Saved ffmpeg x86_64 sidecar.');
+
+      // 4. Create universal binary for ffmpeg (arm64 + x86_64) using lipo
+      console.log('Creating ffmpeg universal binary (lipo)...');
+      const destFfmpegUniversal = path.join(BINARIES_DIR, 'ffmpeg-universal-apple-darwin');
+      execSync(`lipo -create -output "${destFfmpegUniversal}" "${destFfmpegArm}" "${destFfmpegX86}"`);
+      fs.chmodSync(destFfmpegUniversal, 0o755);
+      console.log('Saved ffmpeg universal sidecar.');
+
+      // 5. Save yt-dlp as universal (it's already a universal binary)
+      const ytDlpUniversal = path.join(BINARIES_DIR, 'yt-dlp-universal-apple-darwin');
+      fs.copyFileSync(tempYtDlp, ytDlpUniversal);
+      fs.chmodSync(ytDlpUniversal, 0o755);
+      console.log('Saved yt-dlp universal sidecar.');
     }
 
     if (isWindows) {
