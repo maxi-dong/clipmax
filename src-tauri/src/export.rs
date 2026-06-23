@@ -183,9 +183,11 @@ pub async fn export_clips(
                     "split" => {
                         is_complex_layout = true;
                         let next_label = format!("[v{}]", filter_step);
+                        // Use min(iw, ih*9/8) to avoid cropping wider than the actual video
                         filter_complex.push_str(&format!(
-                            "{0}crop=ih*9/8:ih:0:0,scale=1080:960[top_{1}]; \
-                             {0}crop=ih*9/8:ih:iw-ih*9/8:0,scale=1080:960[bottom_{1}]; \
+                            "{0}split=2[split_a_{1}][split_b_{1}]; \
+                             [split_a_{1}]crop='min(iw,ih*9/8)':ih:'(iw-min(iw,ih*9/8))/2':0,scale=1080:960[top_{1}]; \
+                             [split_b_{1}]crop='min(iw,ih*9/8)':ih:'(iw-min(iw,ih*9/8))/2':0,scale=1080:960,hflip[bottom_{1}]; \
                              [top_{1}][bottom_{1}]vstack=inputs=2,setsar=1{2};",
                             current_input_label, filter_step, next_label
                         ));
@@ -193,7 +195,10 @@ pub async fn export_clips(
                         filter_step += 1;
                     }
                     _ => {
-                        res_filter = "crop=ih*9/16:ih,scale=1080:1920,setsar=1".to_string();
+                        // Safe crop for any input: crop to 9:16 from center
+                        // If video is already 9:16 or narrower, just scale
+                        // crop=w:h:x:y — take full width, crop height proportionally
+                        res_filter = "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)':'(iw-min(iw,ih*9/16))/2':'(ih-min(ih,iw*16/9))/2',scale=1080:1920,setsar=1".to_string();
                     }
                 }
             }
