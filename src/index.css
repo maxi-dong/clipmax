@@ -1080,7 +1080,7 @@ body {
    Export Modal Dialog
    ============================================================ */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: var(--bg-overlay);
   backdrop-filter: blur(12px);
