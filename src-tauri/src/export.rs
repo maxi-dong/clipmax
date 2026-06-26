@@ -186,8 +186,8 @@ pub async fn export_clips(
                         // Use min(iw, ih*9/8) to avoid cropping wider than the actual video
                         filter_complex.push_str(&format!(
                             "{0}split=2[split_a_{1}][split_b_{1}]; \
-                             [split_a_{1}]crop='min(iw,ih*9/8)':ih:'(iw-min(iw,ih*9/8))/2':0,scale=1080:960[top_{1}]; \
-                             [split_b_{1}]crop='min(iw,ih*9/8)':ih:'(iw-min(iw,ih*9/8))/2':0,scale=1080:960,hflip[bottom_{1}]; \
+                             [split_a_{1}]crop='min(iw,ih*9/8)':ih:0:0,scale=1080:960[top_{1}]; \
+                             [split_b_{1}]crop='min(iw,ih*9/8)':ih:'iw-min(iw,ih*9/8)':0,scale=1080:960[bottom_{1}]; \
                              [top_{1}][bottom_{1}]vstack=inputs=2,setsar=1{2};",
                             current_input_label, filter_step, next_label
                         ));
