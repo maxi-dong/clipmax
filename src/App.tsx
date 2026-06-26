@@ -225,7 +225,6 @@ function App() {
 
             if (matchedKeywords.length > 0) {
               const startSec = (seg.offsets?.from || 0) / 1000;
-              const endSec = (seg.offsets?.to || 0) / 1000;
               const matchedStr = matchedKeywords.map((k: string) => `"${k}"`).join(', ');
               
               const prePad = 2; // Fixed pre-padding
