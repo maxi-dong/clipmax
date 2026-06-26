@@ -43,6 +43,12 @@ const Timeline: React.FC<TimelineProps> = ({
     clipId: string;
     edge: 'start' | 'end';
   } | null>(null);
+  const [isDraggingScrollbar, setIsDraggingScrollbar] = useState(false);
+
+  const handleScrollbarDragStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDraggingScrollbar(true);
+  }, []);
 
   // Draw waveform when video source changes
   useEffect(() => {
@@ -215,9 +221,17 @@ const Timeline: React.FC<TimelineProps> = ({
   );
 
   useEffect(() => {
-    if (!isScrubbing && !draggingHandle) return;
+    if (!isScrubbing && !draggingHandle && !isDraggingScrollbar) return;
 
     const handleMove = (e: MouseEvent) => {
+      if (isDraggingScrollbar && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        // Calculate the delta in percentage of the track width
+        const pctDelta = e.movementX / rect.width;
+        setScrollOffset((prev) => clamp(prev + pctDelta, 0, 1 - 1 / zoom));
+        return;
+      }
+      
       if (isScrubbing) {
         const time = xToTime(e.clientX);
         onSeek(clamp(time, 0, duration));
@@ -239,6 +253,7 @@ const Timeline: React.FC<TimelineProps> = ({
     const handleUp = () => {
       setIsScrubbing(false);
       setDraggingHandle(null);
+      setIsDraggingScrollbar(false);
     };
 
     window.addEventListener('mousemove', handleMove);
@@ -247,9 +262,9 @@ const Timeline: React.FC<TimelineProps> = ({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [isScrubbing, draggingHandle, xToTime, onSeek, duration, clips, onUpdateClip]);
+  }, [isScrubbing, draggingHandle, isDraggingScrollbar, zoom, xToTime, onSeek, duration, clips, onUpdateClip]);
 
-  // Zoom with scroll wheel
+  // Zoom and scroll with scroll wheel
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -258,9 +273,14 @@ const Timeline: React.FC<TimelineProps> = ({
         const delta = e.deltaY > 0 ? -0.3 : 0.3;
         setZoom((prev) => clamp(prev + delta * prev * 0.5, 1, 50));
       } else {
-        // Scroll horizontally
-        const delta = e.deltaY > 0 ? 0.05 : -0.05;
-        setScrollOffset((prev) => clamp(prev + delta / zoom, 0, 1 - 1 / zoom));
+        // Scroll horizontally (smooth)
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        // Use deltaX for trackpads, fallback to deltaY for standard mouse wheels
+        const pixelDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.deltaX || e.deltaY);
+        // Convert to percentage of the visible area
+        const pctDelta = pixelDelta / (rect.width * zoom);
+        setScrollOffset((prev) => clamp(prev + pctDelta, 0, 1 - 1 / zoom));
       }
     },
     [zoom],
@@ -432,6 +452,19 @@ const Timeline: React.FC<TimelineProps> = ({
         {/* Playhead */}
         <div className="timeline__playhead" style={{ left: playheadPos }} />
       </div>
+
+      {zoom > 1 && (
+        <div className="timeline__scrollbar-track">
+          <div 
+            className="timeline__scrollbar-thumb"
+            onMouseDown={handleScrollbarDragStart}
+            style={{
+              width: `${(1 / zoom) * 100}%`,
+              left: `${scrollOffset * 100}%`
+            }}
+          />
+        </div>
+      )}
 
     </section>
   );

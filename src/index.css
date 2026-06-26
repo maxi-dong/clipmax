@@ -931,6 +931,32 @@ body {
   right: -4px;
 }
 
+/* ---- Custom Timeline Scrollbar ---- */
+.timeline__scrollbar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  margin-top: 4px;
+  position: relative;
+  width: 100%;
+}
+
+.timeline__scrollbar-thumb {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  position: absolute;
+  top: 0;
+  cursor: grab;
+  transition: background 0.2s ease, height 0.2s ease;
+}
+
+.timeline__scrollbar-thumb:hover, .timeline__scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.4);
+  height: 8px; /* Expand slightly on hover */
+  top: -1px;
+}
+
 /* ---- Shortcut Hints (bottom floating) ---- */
 .shortcut-bar {
   display: flex;
