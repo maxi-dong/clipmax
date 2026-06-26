@@ -9,6 +9,8 @@ interface AIDialogProps {
 const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
   const [mode, setMode] = useState('audio_spike');
   const [keyword, setKeyword] = useState('');
+  const [prePadding, setPrePadding] = useState<number>(2.0);
+  const [postPadding, setPostPadding] = useState<number>(5.0);
   const [apiKey, setApiKey] = useState('');
 
   if (!isOpen) return null;
@@ -18,6 +20,8 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
     if (mode === 'keyword') {
       if (!keyword.trim()) return alert("Please enter at least one keyword");
       options.keyword = keyword;
+      options.prePadding = prePadding;
+      options.postPadding = postPadding;
     }
     if (mode === 'openai' || mode === 'gemini') {
       if (!apiKey.trim()) return alert(`Please enter your ${mode === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
@@ -94,7 +98,34 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
                 placeholder="Enter keyword to search..." 
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
+                style={{ marginBottom: '15px' }}
               />
+              <div style={{ display: 'flex', gap: '15px' }}>
+                <div style={{ flex: 1 }}>
+                  <label>Pre-Padding (sec)</label>
+                  <input 
+                    type="number" 
+                    className="form-control" 
+                    step="0.1"
+                    min="0"
+                    value={prePadding}
+                    onChange={(e) => setPrePadding(parseFloat(e.target.value) || 0)}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Time before keyword</div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label>Post-Padding (sec)</label>
+                  <input 
+                    type="number" 
+                    className="form-control" 
+                    step="0.1"
+                    min="0"
+                    value={postPadding}
+                    onChange={(e) => setPostPadding(parseFloat(e.target.value) || 0)}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Time after keyword</div>
+                </div>
+              </div>
             </div>
           )}
 

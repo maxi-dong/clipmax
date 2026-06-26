@@ -228,10 +228,13 @@ function App() {
               const endSec = (seg.offsets?.to || 0) / 1000;
               const matchedStr = matchedKeywords.map((k: string) => `"${k}"`).join(', ');
               
+              const prePad = options.prePadding !== undefined ? Number(options.prePadding) : 2;
+              const postPad = options.postPadding !== undefined ? Number(options.postPadding) : 5;
+              
               newClips.push({
                 id: `ai-keyword-${Date.now()}-${newClips.length}`,
-                startTime: Math.max(0, startSec - 2),
-                endTime: endSec + 5,
+                startTime: Math.max(0, startSec - prePad),
+                endTime: endSec + postPad,
                 name: `Keyword: ${matchedStr}`
               });
             }
