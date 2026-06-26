@@ -228,13 +228,15 @@ function App() {
               const endSec = (seg.offsets?.to || 0) / 1000;
               const matchedStr = matchedKeywords.map((k: string) => `"${k}"`).join(', ');
               
-              const prePad = options.prePadding !== undefined ? Number(options.prePadding) : 2;
-              const postPad = options.postPadding !== undefined ? Number(options.postPadding) : 5;
+              const prePad = 2; // Fixed pre-padding
+              const clipDuration = options.clipDuration !== undefined ? Number(options.clipDuration) : 30;
+              
+              const calculatedStartTime = Math.max(0, startSec - prePad);
               
               newClips.push({
                 id: `ai-keyword-${Date.now()}-${newClips.length}`,
-                startTime: Math.max(0, startSec - prePad),
-                endTime: endSec + postPad,
+                startTime: calculatedStartTime,
+                endTime: calculatedStartTime + clipDuration,
                 name: `Keyword: ${matchedStr}`
               });
             }

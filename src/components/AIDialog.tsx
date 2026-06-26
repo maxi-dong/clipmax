@@ -9,8 +9,7 @@ interface AIDialogProps {
 const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
   const [mode, setMode] = useState('audio_spike');
   const [keyword, setKeyword] = useState('');
-  const [prePadding, setPrePadding] = useState<number>(2.0);
-  const [postPadding, setPostPadding] = useState<number>(5.0);
+  const [clipDuration, setClipDuration] = useState<number>(30);
   const [apiKey, setApiKey] = useState('');
 
   if (!isOpen) return null;
@@ -20,8 +19,7 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
     if (mode === 'keyword') {
       if (!keyword.trim()) return alert("Please enter at least one keyword");
       options.keyword = keyword;
-      options.prePadding = prePadding;
-      options.postPadding = postPadding;
+      options.clipDuration = clipDuration;
     }
     if (mode === 'openai' || mode === 'gemini') {
       if (!apiKey.trim()) return alert(`Please enter your ${mode === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
@@ -100,30 +98,23 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
                 onChange={(e) => setKeyword(e.target.value)}
                 style={{ marginBottom: '15px' }}
               />
-              <div style={{ display: 'flex', gap: '15px' }}>
-                <div style={{ flex: 1 }}>
-                  <label>Pre-Padding (sec)</label>
-                  <input 
-                    type="number" 
-                    className="form-control" 
-                    step="0.1"
-                    min="0"
-                    value={prePadding}
-                    onChange={(e) => setPrePadding(parseFloat(e.target.value) || 0)}
-                  />
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Time before keyword</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label>Post-Padding (sec)</label>
-                  <input 
-                    type="number" 
-                    className="form-control" 
-                    step="0.1"
-                    min="0"
-                    value={postPadding}
-                    onChange={(e) => setPostPadding(parseFloat(e.target.value) || 0)}
-                  />
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Time after keyword</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <label>Total Clip Duration</label>
+                <select 
+                  className="form-control" 
+                  value={clipDuration}
+                  onChange={(e) => setClipDuration(parseInt(e.target.value) || 30)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <option value={15}>15 Seconds</option>
+                  <option value={20}>20 Seconds</option>
+                  <option value={30}>30 Seconds</option>
+                  <option value={45}>45 Seconds</option>
+                  <option value={60}>60 Seconds</option>
+                  <option value={90}>90 Seconds</option>
+                </select>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Clip starts 2s before the keyword is spoken and spans the chosen duration.
                 </div>
               </div>
             </div>
