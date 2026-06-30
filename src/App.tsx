@@ -385,6 +385,87 @@ function App() {
     );
   }, []);
 
+  const handleApplySubtitlesToAll = useCallback(async (config: SubtitleConfig) => {
+    if (!videoPath) return;
+    
+    setIsAnalyzing(true);
+    await new Promise(resolve => setTimeout(resolve, 100)); // allow UI to update
+    
+    try {
+      const updatedClips = [...clips];
+      let hasChanges = false;
+      
+      for (let i = 0; i < updatedClips.length; i++) {
+        const clip = updatedClips[i];
+        
+        let words = clip.subtitles?.words || [];
+        
+        if (words.length === 0) {
+           // Transcribe if no words
+           const transcript = await invoke<string>('generate_clip_transcript', {
+             videoPath: videoPath,
+             startTime: clip.startTime,
+             endTime: clip.endTime
+           }).catch(() => null);
+           
+           if (transcript) {
+             const parsed = JSON.parse(transcript);
+             const segments = parsed.transcription || [];
+             words = [];
+             
+             for (const seg of segments) {
+                if (!seg.text) continue;
+                const start = (seg.offsets?.from || 0) / 1000;
+                const end = (seg.offsets?.to || 0) / 1000;
+                
+                if (seg.tokens && seg.tokens.length > 0) {
+                    let currentWord = "";
+                    let wordStart = start;
+                    for (let j = 0; j < seg.tokens.length; j++) {
+                        const t = seg.tokens[j];
+                        const tText = t.text.trim();
+                        if (tText) currentWord += (currentWord ? " " : "") + tText;
+                        if (t.text.endsWith(" ") || j === seg.tokens.length - 1) {
+                            if (currentWord) {
+                                words.push({ word: currentWord.trim(), start: wordStart, end: end });
+                                currentWord = "";
+                                wordStart = end;
+                            }
+                        }
+                    }
+                } else {
+                    const textStr = seg.text.trim();
+                    const chunks = textStr.split(" ");
+                    const timePerWord = (end - start) / chunks.length;
+                    chunks.forEach((w: string, idx: number) => {
+                       words.push({ word: w, start: start + (idx * timePerWord), end: start + ((idx + 1) * timePerWord) });
+                    });
+                }
+             }
+           }
+        }
+        
+        updatedClips[i] = {
+          ...clip,
+          subtitles: {
+            ...config,
+            words: words
+          }
+        };
+        hasChanges = true;
+      }
+      
+      if (hasChanges) {
+        setClips(updatedClips);
+        setAiNotification({ type: 'success', message: `✅ Subtitle styles applied to ${updatedClips.length} clips!` });
+      }
+    } catch (e) {
+      setAiNotification({ type: 'error', message: `Failed to batch process subtitles:\n${e}` });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [clips, videoPath]);
+
   const handleExportClick = useCallback(() => {
     setShowExportDialog(true);
   }, []);
@@ -615,6 +696,7 @@ function App() {
               videoPath={videoPath}
               onUpdate={handleClipFullUpdate}
               onClose={() => setSelectedClipId(null)}
+              onApplyToAll={handleApplySubtitlesToAll}
             />
           </div>
         )}

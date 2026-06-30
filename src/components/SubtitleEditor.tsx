@@ -7,6 +7,7 @@ interface SubtitleEditorProps {
   videoPath: string | null;
   onUpdate: (updatedClip: Clip) => void;
   onClose?: () => void;
+  onApplyToAll?: (config: SubtitleConfig) => void;
 }
 
 const DEFAULT_SUBTITLE_CONFIG: SubtitleConfig = {
@@ -22,7 +23,7 @@ const DEFAULT_SUBTITLE_CONFIG: SubtitleConfig = {
   words: []
 };
 
-const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpdate, onClose }) => {
+const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpdate, onClose, onApplyToAll }) => {
   const [config, setConfig] = useState<SubtitleConfig>(clip.subtitles || DEFAULT_SUBTITLE_CONFIG);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<'transcript' | 'style'>('transcript');
@@ -500,6 +501,21 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
                   />
                 </div>
               </div>
+
+              {onApplyToAll && (
+                <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid var(--border-subtle)' }}>
+                  <button 
+                    className="btn btn--secondary" 
+                    onClick={() => onApplyToAll(config)}
+                    style={{ width: '100%', background: 'linear-gradient(45deg, #10ac84, #1dd1a1)', color: 'white', border: 'none' }}
+                  >
+                    ✨ Apply to All Clips
+                  </button>
+                  <p style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '5px', marginBottom: 0 }}>
+                    Applies style to all clips and auto-transcribes clips without text.
+                  </p>
+                </div>
+              )}
             )}
           </div>
         </div>
