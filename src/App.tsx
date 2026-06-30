@@ -425,8 +425,26 @@ function App() {
 
   // ---- Player Controls ----
   const handlePlayPause = useCallback(() => {
-    setIsPlaying((prev) => !prev);
-  }, []);
+    setIsPlaying((prev) => {
+      const nextPlaying = !prev;
+      if (nextPlaying && selectedClipId) {
+        const clip = clips.find(c => c.id === selectedClipId);
+        if (clip && currentTime < clip.endTime) {
+          setPlayingClipId(clip.id);
+          setPlayingClipEndTime(clip.endTime);
+          
+          // If we are outside the clip, jump to start
+          if (currentTime < clip.startTime) {
+             setCurrentTime(clip.startTime);
+          }
+        }
+      } else if (!nextPlaying) {
+        setPlayingClipId(null);
+        setPlayingClipEndTime(null);
+      }
+      return nextPlaying;
+    });
+  }, [selectedClipId, clips, currentTime]);
 
   const handleTimeUpdate = useCallback((time: number) => {
     setCurrentTime(time);
