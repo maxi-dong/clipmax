@@ -1,73 +1,45 @@
-# React + TypeScript + Vite
+# 🎬 ClipMax — Smart Video Clipper
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ClipMax adalah aplikasi desktop modern untuk meng-edit, memotong, dan mengekspor klip video dengan bantuan AI secara otomatis. Dibangun menggunakan teknologi **Tauri (Rust + React)**, ClipMax memberikan performa native, tanpa electron, ringan, dan cepat!
 
-Currently, two official plugins are available:
+## ✨ Fitur Utama
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **🚀 Ringan & Cepat:** Ditenagai oleh **Tauri**, menggunakan webview bawaan OS untuk UI dan **Rust** untuk backend. Tidak memakan banyak memori seperti aplikasi Electron.
+- **🤖 Multi-Mode AI Clipping:**
+  - **Audio Spike (Gratis, Offline):** Deteksi otomatis bagian video yang memiliki volume tinggi (FFmpeg).
+  - **Keyword Search (Gratis, Offline):** Cari kata spesifik dari seluruh video menggunakan Whisper.cpp.
+  - **Gemini & OpenAI GPT-4o (API Key):** Ekstrak otomatis *highlight* paling menarik dari video panjang menjadi klip-klip viral untuk TikTok/Reels.
+- **🎨 Subtitle Studio Lengkap:** Editor subtitle visual per-kata, dukung format **Karaoke**, styling lengkap (warna font, border, margin), dan output *hard-subbed* via `.ass`.
+- **⚡ Parallel Export:** Ekspor beberapa klip sekaligus (multi-threading) untuk mempercepat proses pembuatan klip Anda.
+- **🔧 Built-in Bundled Binaries:** Tidak perlu repot meng-install dependensi! FFmpeg, yt-dlp, dan whisper-cli sudah dibundel sebagai sidecar.
 
-## React Compiler
+## 🛠 Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend:** React, TypeScript, Vite, CSS (Vanilla Custom Properties)
+- **Backend:** Rust, Tauri v2
+- **Tools Integrasi:** FFmpeg (Manipulasi & Export Video), Whisper.cpp (Transkripsi Audio lokal), yt-dlp (Downloader Video Online)
 
-## Expanding the ESLint configuration
+## 🏃‍♂️ Cara Menjalankan Project (Development)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Pastikan Anda memiliki [Node.js](https://nodejs.org/) dan [Rust](https://rustup.rs/) terinstal.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+1. Clone repositori ini.
+2. Install dependensi frontend:
+   ```bash
+   npm install
+   ```
+3. Jalankan aplikasi dalam mode development:
+   ```bash
+   npm run tauri dev
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## 📦 Build untuk Produksi
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Untuk mem-build installer (contoh `.dmg` untuk macOS, `.exe` untuk Windows):
+```bash
+npm run tauri build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+*Dibuat untuk memudahkan konten kreator merangkum video panjang menjadi klip pendek yang siap viral.*

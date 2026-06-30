@@ -5,9 +5,45 @@ interface TitleBarProps {
   onModeChange: (mode: 'manual' | 'ai') => void;
   videoName: string | null;
   onNewProject?: () => void;
+  onSaveProject?: () => void;
+  onOpenProject?: () => void;
+  hasUnsavedChanges?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  historySize?: number;
 }
 
-const TitleBar: React.FC<TitleBarProps> = ({ mode, onModeChange, videoName, onNewProject }) => {
+const btnStyle: React.CSSProperties = {
+  padding: '6px 11px',
+  fontSize: 'var(--font-size-xs)',
+  background: 'rgba(255,255,255,0.05)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '5px',
+  transition: 'background 0.15s, border-color 0.15s',
+  whiteSpace: 'nowrap' as const,
+};
+
+const TitleBar: React.FC<TitleBarProps> = ({
+  mode,
+  onModeChange,
+  videoName,
+  onNewProject,
+  onSaveProject,
+  onOpenProject,
+  hasUnsavedChanges = false,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  historySize = 0,
+}) => {
   return (
     <header className="titlebar" id="titlebar">
       <div className="titlebar__brand">
@@ -24,6 +60,9 @@ const TitleBar: React.FC<TitleBarProps> = ({ mode, onModeChange, videoName, onNe
             whiteSpace: 'nowrap',
           }}>
             — {videoName}
+            {hasUnsavedChanges && (
+              <span style={{ color: 'var(--accent-secondary)', marginLeft: '4px' }} title="Perubahan belum disimpan">●</span>
+            )}
           </span>
         )}
       </div>
@@ -47,28 +86,89 @@ const TitleBar: React.FC<TitleBarProps> = ({ mode, onModeChange, videoName, onNe
         </div>
       </div>
 
-      <div className="titlebar__actions" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-        {onNewProject && videoName && (
-          <button 
-            className="btn btn--secondary" 
-            onClick={onNewProject}
-            style={{ 
-              padding: '6px 12px', 
-              fontSize: 'var(--font-size-xs)', 
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-primary)',
-              cursor: 'pointer'
-            }}
+      <div className="titlebar__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Undo / Redo — tampil jika ada video */}
+        {videoName && onUndo && onRedo && (
+          <div style={{ display: 'flex', gap: '3px', marginRight: '4px' }}>
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              title={canUndo ? `Undo (${historySize} steps) — Cmd+Z` : 'Tidak ada yang bisa di-undo'}
+              style={{
+                ...btnStyle,
+                opacity: canUndo ? 1 : 0.35,
+                padding: '6px 9px',
+                cursor: canUndo ? 'pointer' : 'not-allowed',
+              }}
+              id="undo-btn"
+            >
+              ↩
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              title={canRedo ? 'Redo — Cmd+Shift+Z' : 'Tidak ada yang bisa di-redo'}
+              style={{
+                ...btnStyle,
+                opacity: canRedo ? 1 : 0.35,
+                padding: '6px 9px',
+                cursor: canRedo ? 'pointer' : 'not-allowed',
+              }}
+              id="redo-btn"
+            >
+              ↪
+            </button>
+          </div>
+        )}
+
+        {/* Open Project — selalu tampil */}
+        {onOpenProject && (
+          <button
+            className="btn btn--secondary"
+            onClick={onOpenProject}
+            style={btnStyle}
+            title="Buka project yang tersimpan (.clipmax.json)"
+            id="open-project-btn"
           >
-            🆕 New Project
+            📂 Open
           </button>
         )}
+
+        {/* Save Project — hanya tampil jika ada video */}
+        {onSaveProject && videoName && (
+          <button
+            className="btn btn--secondary"
+            onClick={onSaveProject}
+            style={{
+              ...btnStyle,
+              borderColor: hasUnsavedChanges ? 'var(--accent-secondary)' : 'var(--border-default)',
+              color: hasUnsavedChanges ? 'var(--accent-secondary)' : 'var(--text-primary)',
+            }}
+            title={hasUnsavedChanges ? 'Ada perubahan yang belum disimpan' : 'Simpan project'}
+            id="save-project-btn"
+          >
+            💾 Save
+          </button>
+        )}
+
+        {/* New Project */}
+        {onNewProject && videoName && (
+          <button
+            className="btn btn--secondary"
+            onClick={onNewProject}
+            style={btnStyle}
+            title="Mulai project baru"
+            id="new-project-btn"
+          >
+            🆕 New
+          </button>
+        )}
+
         <span style={{
           fontSize: 'var(--font-size-xs)',
           color: 'var(--text-muted)',
           fontWeight: 500,
+          marginLeft: '7px',
         }}>
           v0.1.0
         </span>

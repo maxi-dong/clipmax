@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Clip, AppMode, SubtitleConfig } from './types';
 import { generateId } from './utils';
+import { serializeProject, deserializeProject } from './project';
+import { useHistory } from './useHistory';
 import TitleBar from './components/TitleBar';
 import DropZone from './components/DropZone';
 import VideoPlayer from './components/VideoPlayer';
@@ -9,10 +11,12 @@ import ClipList from './components/ClipList';
 import ExportDialog from './components/ExportDialog';
 import AIDialog from './components/AIDialog';
 import SubtitleEditor from './components/SubtitleEditor';
+import WhisperDownloadModal from './components/WhisperDownloadModal';
 import type { ExportConfig } from './components/ExportDialog';
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { message } from '@tauri-apps/plugin-dialog';
+import { message, save, open as openDialog, confirm } from '@tauri-apps/plugin-dialog';
+import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { listen } from '@tauri-apps/api/event';
 
 function App() {
@@ -24,7 +28,12 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [clips, setClips] = useState<Clip[]>([]);
+
+  // Undo/Redo: semua mutasi clip dikelola via useHistory
+  const clipsHistory = useHistory<Clip[]>([]);
+  const clips = clipsHistory.state;
+  const setClips = clipsHistory.set;
+
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [markIn, setMarkIn] = useState<number | null>(null);
   const [markOut, setMarkOut] = useState<number | null>(null);
@@ -37,6 +46,17 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiNotification, setAiNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
+  // Issue 1: Save/Load project — track unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Issue 2: Drag-drop fix — flag to prevent race condition between web drop and Tauri drop
+  const tauriHandledDropRef = useRef(false);
+
+  // Issue 3: Whisper download state
+  const [isDownloadingWhisper, setIsDownloadingWhisper] = useState(false);
+  const [whisperDownloadProgress, setWhisperDownloadProgress] = useState({ percent: 0, downloadedMb: 0, totalMb: 147.9 });
+  const whisperDownloadCancelRef = useRef(false);
+
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
 
@@ -47,25 +67,32 @@ function App() {
     setVideoName(name);
     setCurrentTime(0);
     setIsPlaying(false);
-    setClips([]);
+    clipsHistory.set([]);  // reset history sepenuhnya
     setMarkIn(null);
     setMarkOut(null);
     setSelectedClipId(null);
-  }, []);
+    setHasUnsavedChanges(false);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleNewProject = useCallback(() => {
-    if (window.confirm("Are you sure you want to start a new project? This will clear all clips and the current video.")) {
+  const handleNewProject = useCallback(async () => {
+    const confirmed = await confirm(
+      'Semua klip dan video saat ini akan dihapus. Lanjutkan?',
+      { title: 'New Project', kind: 'warning' }
+    ).catch(() => window.confirm('Semua klip dan video saat ini akan dihapus. Lanjutkan?'));
+
+    if (confirmed) {
       setVideoSrc(null);
       setVideoPath(null);
-      setVideoName("");
+      setVideoName('');
       setCurrentTime(0);
       setIsPlaying(false);
-      setClips([]);
+      clipsHistory.set([]);
       setMarkIn(null);
       setMarkOut(null);
       setSelectedClipId(null);
+      setHasUnsavedChanges(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -82,6 +109,8 @@ function App() {
       e.preventDefault();
       e.stopPropagation();
       setIsDragOver(false);
+      // Issue 2 fix: skip web drop if Tauri already handled it
+      if (tauriHandledDropRef.current) return;
       const file = e.dataTransfer.files?.[0];
       if (file && file.type.startsWith('video/')) {
         const url = URL.createObjectURL(file);
@@ -91,19 +120,105 @@ function App() {
     [loadVideo],
   );
 
+  // ---- Issue 1: Save / Load Project ----
+  const handleSaveProject = useCallback(async () => {
+    if (!videoPath || !videoName) return;
+    try {
+      const filePath = await save({
+        defaultPath: videoName.replace(/\.[^.]+$/, '') + '.clipmax.json',
+        filters: [{ name: 'ClipMax Project', extensions: ['json'] }],
+      });
+      if (!filePath) return;
+      const project = serializeProject(videoPath, videoName, clips);
+      await writeTextFile(filePath, JSON.stringify(project, null, 2));
+      setHasUnsavedChanges(false);
+      message(`Project disimpan ke:\n${filePath}`, { title: 'Tersimpan ✅', kind: 'info' });
+    } catch (e) {
+      message(`Gagal menyimpan project:\n${e}`, { title: 'Error', kind: 'error' });
+    }
+  }, [videoPath, videoName, clips]);
+
+  const handleOpenProject = useCallback(async () => {
+    try {
+      const filePath = await openDialog({
+        multiple: false,
+        filters: [{ name: 'ClipMax Project', extensions: ['json'] }],
+      });
+      if (!filePath || typeof filePath !== 'string') return;
+
+      const raw = await readTextFile(filePath);
+      const project = deserializeProject(raw);
+
+      // Convert the stored path back to a playable URL
+      const url = convertFileSrc(project.videoPath);
+      setVideoSrc(url);
+      setVideoPath(project.videoPath);
+      setVideoName(project.videoName);
+      clipsHistory.set(project.clips);  // restore dengan history bersih
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setMarkIn(null);
+      setMarkOut(null);
+      setSelectedClipId(null);
+      setHasUnsavedChanges(false);
+    } catch (e: any) {
+      message(`Gagal membuka project:\n${e?.message || e}`, { title: 'Error', kind: 'error' });
+    }
+  }, []);
+
+  // Issue 3: Whisper model check + download flow
+  const ensureWhisperModel = useCallback(async (): Promise<boolean> => {
+    const modelExists = await invoke<boolean>('check_whisper_model');
+    if (modelExists) return true;
+
+    // Model missing — show download modal
+    whisperDownloadCancelRef.current = false;
+    setIsDownloadingWhisper(true);
+    setWhisperDownloadProgress({ percent: 0, downloadedMb: 0, totalMb: 147.9 });
+
+    const unlisten = await listen<{ percent: number; downloaded_mb: number; total_mb: number }>(
+      'whisper-download-progress',
+      (event) => {
+        setWhisperDownloadProgress({
+          percent: event.payload.percent,
+          downloadedMb: event.payload.downloaded_mb,
+          totalMb: event.payload.total_mb,
+        });
+      },
+    );
+
+    try {
+      await invoke('download_whisper_model');
+      return !whisperDownloadCancelRef.current;
+    } catch (e) {
+      setAiNotification({ type: 'error', message: `Gagal mengunduh model Whisper:\n${e}` });
+      return false;
+    } finally {
+      unlisten();
+      setIsDownloadingWhisper(false);
+    }
+  }, []);
+
   // ---- AI Operations ----
   const handleAIAnalyze = async (aiMode: string, options: any) => {
     setIsAIDialogOpen(false);
     setAiNotification(null);
 
     if (!videoSrc) {
-      setAiNotification({ type: 'error', message: 'Please load a video first.' });
+      setAiNotification({ type: 'error', message: 'Silakan load video terlebih dahulu.' });
       return;
     }
 
     if (!videoPath || videoPath.startsWith('blob:') || videoPath === '') {
-      setAiNotification({ type: 'error', message: 'AI Mode requires a real file path.\n\nPlease load your video using the file picker button (Browse Files), not drag & drop.' });
+      setAiNotification({ type: 'error', message: 'Mode AI membutuhkan path file nyata.\n\nSilakan load video menggunakan tombol Browse Files, bukan drag & drop.' });
       return;
+    }
+
+    // Issue 3: For Whisper-based modes, ensure model is downloaded first
+    const needsWhisper = aiMode === 'keyword' || aiMode === 'audio_spike';
+    if (needsWhisper) {
+      const ready = await ensureWhisperModel();
+      if (!ready) return;
     }
 
     console.log("[AI] Starting analysis. Mode:", aiMode, "Path:", videoPath);
@@ -326,6 +441,7 @@ function App() {
     setClips((prev) => [...prev, newClip]);
     setMarkIn(null);
     setMarkOut(null);
+    setHasUnsavedChanges(true);
   }, [markIn, markOut, clips.length]);
 
   const handleProcessFullVideo = useCallback(() => {
@@ -339,6 +455,7 @@ function App() {
     setClips((prev) => [...prev, newClip]);
     setSelectedClipId(newClip.id);
     setCurrentTime(0);
+    setHasUnsavedChanges(true);
   }, [duration]);
 
   const handleSelectClip = useCallback(
@@ -365,24 +482,33 @@ function App() {
   const handleDeleteClip = useCallback((id: string) => {
     setClips((prev) => prev.filter((c) => c.id !== id));
     setSelectedClipId((prev) => (prev === id ? null : prev));
-  }, []);
+    setHasUnsavedChanges(true);
+  }, [setClips]);
 
   const handleRenameClip = useCallback((id: string, name: string) => {
     setClips((prev) =>
       prev.map((c) => (c.id === id ? { ...c, name } : c)),
     );
-  }, []);
+    setHasUnsavedChanges(true);
+  }, [setClips]);
+
+  const handleReorderClips = useCallback((reordered: Clip[]) => {
+    setClips(reordered);
+    setHasUnsavedChanges(true);
+  }, [setClips]);
 
   const handleUpdateClip = useCallback((id: string, startTime: number, endTime: number) => {
     setClips((prev) =>
       prev.map((c) => (c.id === id ? { ...c, startTime, endTime } : c)),
     );
+    setHasUnsavedChanges(true);
   }, []);
 
   const handleClipFullUpdate = useCallback((updatedClip: Clip) => {
     setClips((prev) =>
       prev.map((c) => (c.id === updatedClip.id ? updatedClip : c)),
     );
+    setHasUnsavedChanges(true);
   }, []);
 
   const handleApplySubtitlesToAll = useCallback(async (config: SubtitleConfig) => {
@@ -542,6 +668,17 @@ function App() {
             handleDeleteClip(selectedClipId);
           }
           break;
+        case 'z':
+          // Cmd+Z = undo, Cmd+Shift+Z = redo
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            if (e.shiftKey) {
+              clipsHistory.redo();
+            } else {
+              clipsHistory.undo();
+            }
+          }
+          break;
       }
     };
 
@@ -551,7 +688,8 @@ function App() {
 
   // ---- Global drag-over for window ----
   useEffect(() => {
-    // 1. Web API fallback (for browser testing / non-tauri context)
+  // Issue 2: fix drag-drop race condition between web and Tauri events
+      // 1. Web API fallback (for browser testing / non-tauri context)
     const handleWindowDragOver = (e: DragEvent) => {
       e.preventDefault();
       setIsDragOver(true);
@@ -569,6 +707,8 @@ function App() {
     const handleWindowDrop = (e: DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
+      // Issue 2 fix: skip if Tauri native drop already handled this file
+      if (tauriHandledDropRef.current) return;
       const file = e.dataTransfer?.files?.[0];
       if (file && file.type.startsWith('video/')) {
         const url = URL.createObjectURL(file);
@@ -588,11 +728,14 @@ function App() {
     const setupTauriEvents = async () => {
       // 1. Drop Events
       unlistenDrop = await listen<{paths: string[]}>('tauri://drop', (event) => {
+        // Issue 2 fix: mark that Tauri handled this drop
+        tauriHandledDropRef.current = true;
+        setTimeout(() => { tauriHandledDropRef.current = false; }, 200);
+
         setIsDragOver(false);
         const paths = event.payload.paths || event.payload; // v1 vs v2 compatibility
         if (Array.isArray(paths) && paths.length > 0) {
           const filePath = paths[0];
-          // We assume it's a video. Ideally we should check extension.
           const url = convertFileSrc(filePath);
           const name = filePath.split(/[/\\]/).pop() || 'Video';
           loadVideo(filePath, url, name);
@@ -636,6 +779,14 @@ function App() {
         onModeChange={setMode}
         videoName={videoName}
         onNewProject={handleNewProject}
+        onSaveProject={handleSaveProject}
+        onOpenProject={handleOpenProject}
+        hasUnsavedChanges={hasUnsavedChanges}
+        canUndo={clipsHistory.canUndo}
+        canRedo={clipsHistory.canRedo}
+        onUndo={clipsHistory.undo}
+        onRedo={clipsHistory.redo}
+        historySize={clipsHistory.historySize}
       />
 
       <main className="main-area" id="main-area">
@@ -659,6 +810,24 @@ function App() {
             onFileSelect={loadVideo}
           />
         )}
+        {/* Issue 2: warn if video loaded without real path (drag-drop fallback) */}
+        {videoSrc && (!videoPath || videoPath === '' || videoPath.startsWith('blob:')) && (
+          <div style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0,
+            background: 'rgba(253, 203, 110, 0.15)',
+            borderBottom: '1px solid rgba(253, 203, 110, 0.4)',
+            padding: '6px 16px',
+            fontSize: '12px',
+            color: '#fdcb6e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            zIndex: 100,
+          }}>
+            ⚠️ Video di-load tanpa file path — fitur AI tidak tersedia. Gunakan tombol <strong>Browse Files</strong> untuk mengaktifkan AI.
+          </div>
+        )}
       </main>
 
       <ClipList
@@ -667,6 +836,7 @@ function App() {
         onSelectClip={handleSelectClip}
         onDeleteClip={handleDeleteClip}
         onRenameClip={handleRenameClip}
+        onReorderClips={handleReorderClips}
         onExport={handleExportClick}
         exportDisabled={clips.length === 0}
       />
@@ -756,6 +926,19 @@ function App() {
           <h2 style={{ margin: 0 }}>AI is thinking...</h2>
           <p style={{ margin: 0, color: '#aaa' }}>Processing your video. This may take a minute.</p>
         </div>
+      )}
+
+      {/* Issue 3: Whisper Download Modal */}
+      {isDownloadingWhisper && (
+        <WhisperDownloadModal
+          progress={whisperDownloadProgress.percent}
+          downloadedMb={whisperDownloadProgress.downloadedMb}
+          totalMb={whisperDownloadProgress.totalMb}
+          onCancel={() => {
+            whisperDownloadCancelRef.current = true;
+            setIsDownloadingWhisper(false);
+          }}
+        />
       )}
 
       {showExportDialog && (

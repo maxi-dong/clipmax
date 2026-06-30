@@ -23,6 +23,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             export::export_clips,
             downloader::download_video,
+            ai::check_whisper_model,
+            ai::download_whisper_model,
             ai::analyze_audio_spike,
             ai::extract_and_transcribe,
             ai::analyze_with_openai,

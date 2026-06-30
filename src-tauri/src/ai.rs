@@ -1,8 +1,99 @@
 use tauri::AppHandle;
+use tauri::Emitter;
 use std::process::Command;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use crate::sidecar::get_sidecar_path;
+
+const WHISPER_MODEL_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+const WHISPER_MODEL_SIZE_BYTES: u64 = 147_951_465; // ~141 MB
+
+fn whisper_model_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("ggml-base.bin")
+}
+
+/// Returns true if the Whisper model file already exists on disk.
+#[tauri::command]
+pub async fn check_whisper_model() -> bool {
+    whisper_model_path().exists()
+}
+
+/// Downloads the Whisper base model and emits `whisper-download-progress` events.
+/// Payload: { percent: f32, downloaded_mb: f32, total_mb: f32 }
+#[tauri::command]
+pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String> {
+    let model_path = whisper_model_path();
+
+    // Already exists — nothing to do.
+    if model_path.exists() {
+        let _ = app_handle.emit(
+            "whisper-download-progress",
+            serde_json::json!({ "percent": 100.0, "downloaded_mb": 147.9, "total_mb": 147.9 }),
+        );
+        return Ok(());
+    }
+
+    // Start the curl download in a blocking thread so we can poll in parallel.
+    let model_path_clone = model_path.clone();
+    let download_handle = std::thread::spawn(move || {
+        std::process::Command::new("curl")
+            .args([
+                "-L",
+                "-o",
+                &model_path_clone.to_string_lossy(),
+                WHISPER_MODEL_URL,
+            ])
+            .output()
+    });
+
+    // Poll file size every 400ms and emit progress events.
+    let total_bytes = WHISPER_MODEL_SIZE_BYTES as f64;
+    let total_mb = total_bytes / 1_048_576.0;
+
+    loop {
+        // Check if download thread is done.
+        if download_handle.is_finished() {
+            break;
+        }
+
+        let downloaded_bytes = model_path
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0) as f64;
+
+        let percent = (downloaded_bytes / total_bytes * 100.0).min(99.0); // cap at 99% until confirmed done
+        let downloaded_mb = downloaded_bytes / 1_048_576.0;
+
+        let _ = app_handle.emit(
+            "whisper-download-progress",
+            serde_json::json!({
+                "percent": percent,
+                "downloaded_mb": downloaded_mb,
+                "total_mb": total_mb,
+            }),
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+
+    // Join the thread and check for errors.
+    match download_handle.join() {
+        Ok(Ok(output)) if output.status.success() => {
+            let _ = app_handle.emit(
+                "whisper-download-progress",
+                serde_json::json!({ "percent": 100.0, "downloaded_mb": total_mb, "total_mb": total_mb }),
+            );
+            Ok(())
+        }
+        Ok(Ok(output)) => Err(format!(
+            "Download gagal: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )),
+        Ok(Err(e)) => Err(format!("Gagal menjalankan curl: {}", e)),
+        Err(_) => Err("Download thread panic".to_string()),
+    }
+}
 
 fn to_base64(bytes: &[u8]) -> String {
     const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -222,21 +313,10 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
     let temp_wav = temp_dir.join("clipmax_audio.wav");
     let model_path = temp_dir.join("ggml-base.bin");
     
-    // 1. Download whisper model if it doesn't exist (~150MB, only first time)
+    // Model must already be downloaded by the frontend via download_whisper_model.
+    // If it's missing, return a clear error.
     if !model_path.exists() {
-        println!("[whisper] Downloading ggml-base.bin model (~150MB), first time only...");
-        let curl_out = std::process::Command::new("curl")
-            .args([
-                "-L", "--progress-bar",
-                "-o", &model_path.to_string_lossy(),
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
-            ])
-            .output()
-            .map_err(|e| format!("Failed to download model: {}", e))?;
-        if !curl_out.status.success() {
-            return Err(format!("Model download failed: {}", String::from_utf8_lossy(&curl_out.stderr)));
-        }
-        println!("[whisper] Model downloaded successfully.");
+        return Err("Model Whisper belum diunduh. Silakan klik 'Start Analysis' lagi untuk mengunduhnya.".to_string());
     }
 
     // 2. Extract audio to 16kHz WAV
@@ -413,20 +493,9 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
     let temp_wav = temp_dir.join(format!("clipmax_seg_{}_{}.wav", start_time as u64, end_time as u64));
     let model_path = temp_dir.join("ggml-base.bin");
     
-    // 1. Download model if missing (~150MB, only first time)
+    // Model must already be downloaded by the frontend via download_whisper_model.
     if !model_path.exists() {
-        println!("[whisper] Downloading ggml-base.bin model (~150MB), first time only...");
-        let curl_out = std::process::Command::new("curl")
-            .args([
-                "-L", "--progress-bar",
-                "-o", &model_path.to_string_lossy(),
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
-            ])
-            .output()
-            .map_err(|e| format!("Failed to download model: {}", e))?;
-        if !curl_out.status.success() {
-            return Err(format!("Model download failed: {}", String::from_utf8_lossy(&curl_out.stderr)));
-        }
+        return Err("Model Whisper belum diunduh. Silakan klik 'Start Analysis' lagi untuk mengunduhnya.".to_string());
     }
 
     // 2. Slice video and convert to 16kHz WAV
