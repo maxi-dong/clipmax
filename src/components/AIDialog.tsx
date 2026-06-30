@@ -141,18 +141,15 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
           {mode === 'auto_split' && (
             <div className="form-group animate-fadeIn" style={{ marginTop: '15px' }}>
               <label>Clip Duration</label>
-              <select 
+              <input 
+                type="number"
                 className="form-control" 
                 value={splitDuration}
+                min="1"
                 onChange={(e) => setSplitDuration(parseInt(e.target.value) || 60)}
-                style={{ cursor: 'pointer', marginBottom: '5px' }}
-              >
-                <option value={15}>15 Seconds</option>
-                <option value={30}>30 Seconds</option>
-                <option value={60}>60 Seconds (1 Minute)</option>
-                <option value={120}>120 Seconds (2 Minutes)</option>
-                <option value={300}>300 Seconds (5 Minutes)</option>
-              </select>
+                placeholder="e.g., 60"
+                style={{ marginBottom: '5px' }}
+              />
               <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                 The video will be sliced continuously into clips of this duration until the end.
               </div>
