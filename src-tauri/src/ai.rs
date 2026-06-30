@@ -506,6 +506,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
             "-to", &end_time.to_string(),
             "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            "-af", "afftdn,loudnorm",
             &temp_wav.to_string_lossy()
         ])
         .output()
