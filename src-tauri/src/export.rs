@@ -19,6 +19,8 @@ pub struct ExportConfig {
     pub anti_dup: AntiDupConfig,
     #[serde(rename = "outputDir")]
     pub output_dir: Option<String>,
+    #[serde(rename = "autoFraming")]
+    pub auto_framing: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -207,7 +209,18 @@ pub async fn export_clips(
                                 filter_step += 1;
                             }
                             _ => {
-                                res_filter = "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)':'(iw-min(iw,ih*9/16))/2':'(ih-min(ih,iw*16/9))/2',scale=1080:1920,setsar=1".to_string();
+                                let mut crop_x = "'(iw-min(iw,ih*9/16))/2'".to_string(); // Default center
+                                if config.auto_framing.unwrap_or(false) {
+                                    if let Ok(Some(face_x)) = crate::face_detect::detect_best_face_x(&app_handle, &video_src, clip.start_time, clip.end_time) {
+                                        // Crop window width is ih*9/16. Half of it is ih*9/32.
+                                        // But we don't know `ih` exactly at compile time in string interpolation, 
+                                        // so we evaluate using FFmpeg math:
+                                        // X = face_x - crop_w/2.
+                                        // crop_w = min(iw, ih*9/16)
+                                        crop_x = format!("'max(0, min(iw - min(iw,ih*9/16), {face_x} - min(iw,ih*9/16)/2))'");
+                                    }
+                                }
+                                res_filter = format!("crop='min(iw,ih*9/16)':'min(ih,iw*16/9)':{}:'(ih-min(ih,iw*16/9))/2',scale=1080:1920,setsar=1", crop_x);
                             }
                         }
                     }

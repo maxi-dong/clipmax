@@ -23,6 +23,7 @@ export interface ExportConfig {
     level: string;
   };
   outputDir: string | null;
+  autoFraming?: boolean;
 }
 
 import { open } from '@tauri-apps/plugin-dialog';
@@ -150,17 +151,34 @@ const ExportDialog: React.FC<ExportDialogProps> = ({ onClose, onExport, clipCoun
               </div>
 
               {config.resolution === 'vertical-1080p' && (
-                <div className="form-group animate-fadeIn">
-                  <label>Vertical Layout Style</label>
-                  <select
-                    value={config.verticalLayout || 'crop'}
-                    onChange={(e) => setConfig({ ...config, verticalLayout: e.target.value as any })}
-                    className="form-control"
-                  >
-                    <option value="crop">🔍 Crop Center (Penuh Fokus Tengah)</option>
-                    <option value="blur">🌫️ Fit (Latar Belakang Buram)</option>
-                    <option value="split">🥞 Split Screen (Layar Tumpuk)</option>
-                  </select>
+                <div className="animate-fadeIn" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div className="form-group">
+                    <label>Vertical Layout Style</label>
+                    <select
+                      value={config.verticalLayout || 'crop'}
+                      onChange={(e) => setConfig({ ...config, verticalLayout: e.target.value as any })}
+                      className="form-control"
+                    >
+                      <option value="crop">🔍 Crop Center (Penuh Fokus Tengah)</option>
+                      <option value="blur">🌫️ Fit (Latar Belakang Buram)</option>
+                      <option value="split">🥞 Split Screen (Layar Tumpuk)</option>
+                    </select>
+                  </div>
+                  
+                  {(!config.verticalLayout || config.verticalLayout === 'crop') && (
+                    <div className="form-group row" style={{ padding: '10px', background: 'rgba(29, 209, 161, 0.1)', borderRadius: '6px', borderLeft: '3px solid var(--accent-primary)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ margin: 0, color: 'var(--accent-primary)', fontWeight: 600 }}>🤖 Enable Auto-Framing (Face Tracking)</label>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Mendeteksi wajah dan otomatis menggeser fokus video (crop).</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={config.autoFraming || false}
+                        onChange={(e) => setConfig({ ...config, autoFraming: e.target.checked })}
+                        className="form-toggle"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               <div className="form-group">
