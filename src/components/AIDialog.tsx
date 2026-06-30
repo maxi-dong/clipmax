@@ -10,6 +10,7 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
   const [mode, setMode] = useState('audio_spike');
   const [keyword, setKeyword] = useState('');
   const [clipDuration, setClipDuration] = useState<number>(30);
+  const [splitDuration, setSplitDuration] = useState<number>(60);
   const [apiKey, setApiKey] = useState('');
 
   if (!isOpen) return null;
@@ -20,6 +21,10 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
       if (!keyword.trim()) return alert("Please enter at least one keyword");
       options.keyword = keyword;
       options.clipDuration = clipDuration;
+    }
+    if (mode === 'auto_split') {
+      if (!splitDuration || splitDuration <= 0) return alert("Please enter a valid duration in seconds");
+      options.splitDuration = splitDuration;
     }
     if (mode === 'openai' || mode === 'gemini') {
       if (!apiKey.trim()) return alert(`Please enter your ${mode === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
@@ -85,6 +90,19 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
                 </div>
               </div>
             </div>
+
+            <div className="preset-grid" style={{ marginTop: '10px' }}>
+              <div 
+                className={`preset-card ${mode === 'auto_split' ? 'preset-card--active' : ''}`}
+                onClick={() => setMode('auto_split')}
+              >
+                <div className="preset-card__icon">✂️</div>
+                <div className="preset-card__info">
+                  <h4>Auto Split (Fixed Duration)</h4>
+                  <p>Automatically slices the entire video sequentially into equal parts.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           {mode === 'keyword' && (
@@ -116,6 +134,27 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                   Clip starts 2s before the keyword is spoken and spans the chosen duration.
                 </div>
+              </div>
+            </div>
+          )}
+
+          {mode === 'auto_split' && (
+            <div className="form-group animate-fadeIn" style={{ marginTop: '15px' }}>
+              <label>Clip Duration</label>
+              <select 
+                className="form-control" 
+                value={splitDuration}
+                onChange={(e) => setSplitDuration(parseInt(e.target.value) || 60)}
+                style={{ cursor: 'pointer', marginBottom: '5px' }}
+              >
+                <option value={15}>15 Seconds</option>
+                <option value={30}>30 Seconds</option>
+                <option value={60}>60 Seconds (1 Minute)</option>
+                <option value={120}>120 Seconds (2 Minutes)</option>
+                <option value={300}>300 Seconds (5 Minutes)</option>
+              </select>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                The video will be sliced continuously into clips of this duration until the end.
               </div>
             </div>
           )}

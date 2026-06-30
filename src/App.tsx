@@ -250,6 +250,27 @@ function App() {
         setClips((prev) => [...prev, ...newClips]);
         setAiNotification({ type: 'success', message: `✅ Found ${newClips.length} clips matching your keywords!` });
 
+      } else if (aiMode === 'auto_split') {
+        const splitDuration = options.splitDuration || 60;
+        const newClips: Clip[] = [];
+        let currentTime = 0;
+        let partNumber = 1;
+        
+        while (currentTime < duration) {
+          const endTime = Math.min(currentTime + splitDuration, duration);
+          newClips.push({
+            id: `ai-split-${Date.now()}-${partNumber}`,
+            startTime: currentTime,
+            endTime: endTime,
+            name: `Part ${partNumber}`
+          });
+          currentTime += splitDuration;
+          partNumber++;
+        }
+        
+        setClips((prev) => [...prev, ...newClips]);
+        setAiNotification({ type: 'success', message: `✅ Sliced video into ${newClips.length} parts!` });
+
       } else {
         setAiNotification({ type: 'info', message: 'This mode is currently under development.' });
       }
