@@ -19,6 +19,27 @@ import { message, save, open as openDialog, confirm } from '@tauri-apps/plugin-d
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { listen } from '@tauri-apps/api/event';
 
+const translateAiError = (error: any): string => {
+  const errStr = String(error).toLowerCase();
+  if (errStr.includes('401') || errStr.includes('unauthorized') || errStr.includes('api_key_invalid')) {
+    return 'API Key Anda tidak valid. Silakan periksa kembali di menu pengaturan AI.';
+  }
+  if (errStr.includes('429') || errStr.includes('too many requests') || errStr.includes('quota') || errStr.includes('insufficient_quota')) {
+    return 'Batas penggunaan (kuota) API Anda telah habis. Silakan periksa billing/saldo API Anda.';
+  }
+  if (errStr.includes('network') || errStr.includes('timeout') || errStr.includes('fetch')) {
+    return 'Gagal terhubung ke server AI. Silakan periksa koneksi internet Anda.';
+  }
+  
+  // Default to extracting a meaningful line if possible
+  const lines = String(error).split('\n');
+  const meaningfulLine = lines.find(l =>
+    /error|failed|invalid|no such|cannot|not found/i.test(l) &&
+    !/ffmpeg version|built with|configuration:|lib|Copyright/i.test(l)
+  ) || lines[0];
+  return meaningfulLine.trim();
+};
+
 function App() {
   // ---- State ----
   const [mode, setMode] = useState<AppMode>('manual');
@@ -45,6 +66,10 @@ function App() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiNotification, setAiNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  // Play clip state
+  const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+  const [playingClipEndTime, setPlayingClipEndTime] = useState<number | null>(null);
 
   // Issue 1: Save/Load project — track unsaved changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -391,14 +416,8 @@ function App() {
       }
     } catch (err) {
       console.error("[AI] Error:", err);
-      // Extract meaningful error line
-      const fullError = String(err);
-      const lines = fullError.split('\n');
-      const meaningfulLine = lines.find(l =>
-        /error|failed|invalid|no such|cannot|not found/i.test(l) &&
-        !/ffmpeg version|built with|configuration:|lib|Copyright/i.test(l)
-      ) || lines[0];
-      setAiNotification({ type: 'error', message: `AI Analysis failed:\n${meaningfulLine.trim()}` });
+      const userMessage = translateAiError(err);
+      setAiNotification({ type: 'error', message: `AI Analysis failed:\n${userMessage}` });
     } finally {
       setIsAnalyzing(false);
     }
@@ -411,7 +430,14 @@ function App() {
 
   const handleTimeUpdate = useCallback((time: number) => {
     setCurrentTime(time);
-  }, []);
+    
+    // Auto-pause if we are previewing a clip and reached its end
+    if (playingClipEndTime !== null && time >= playingClipEndTime) {
+      setIsPlaying(false);
+      setPlayingClipId(null);
+      setPlayingClipEndTime(null);
+    }
+  }, [playingClipEndTime]);
 
   const handleDurationLoaded = useCallback((dur: number) => {
     setDuration(dur);
@@ -458,26 +484,24 @@ function App() {
     setHasUnsavedChanges(true);
   }, [duration]);
 
-  const handleSelectClip = useCallback(
-    (id: string, seekToStart = true) => {
-      setSelectedClipId((prev) => {
-        const isSelected = prev === id;
-        if (isSelected) {
-          return null; // deselect
-        }
-        
-        // Seek to the clip start time if selected
-        if (seekToStart) {
-          const clip = clips.find((c) => c.id === id);
-          if (clip) {
-            setCurrentTime(clip.startTime);
-          }
-        }
-        return id;
-      });
-    },
-    [clips],
-  );
+  const handleSelectClip = useCallback((id: string) => {
+    setSelectedClipId(id);
+    const clip = clips.find((c) => c.id === id);
+    if (clip) {
+      setCurrentTime(clip.startTime);
+      // Stop clip preview if we manually select a clip
+      setPlayingClipId(null);
+      setPlayingClipEndTime(null);
+    }
+  }, [clips]);
+
+  const handlePlayClip = useCallback((id: string, startTime: number, endTime: number) => {
+    setSelectedClipId(id);
+    setCurrentTime(startTime);
+    setPlayingClipId(id);
+    setPlayingClipEndTime(endTime);
+    setIsPlaying(true);
+  }, []);
 
   const handleDeleteClip = useCallback((id: string) => {
     setClips((prev) => prev.filter((c) => c.id !== id));
@@ -830,16 +854,18 @@ function App() {
         )}
       </main>
 
-      <ClipList
-        clips={clips}
-        selectedClipId={selectedClipId}
-        onSelectClip={handleSelectClip}
-        onDeleteClip={handleDeleteClip}
-        onRenameClip={handleRenameClip}
-        onReorderClips={handleReorderClips}
-        onExport={handleExportClick}
-        exportDisabled={clips.length === 0}
-      />
+          <ClipList
+            clips={clips}
+            selectedClipId={selectedClipId}
+            onSelectClip={handleSelectClip}
+            onDeleteClip={handleDeleteClip}
+            onRenameClip={handleRenameClip}
+            onReorderClips={handleReorderClips}
+            onExport={handleExportClick}
+            exportDisabled={clips.length === 0}
+            onPlayClip={handlePlayClip}
+            playingClipId={playingClipId}
+          />
 
       {videoSrc && (
         <>

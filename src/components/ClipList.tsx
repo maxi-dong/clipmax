@@ -11,6 +11,8 @@ interface ClipListProps {
   onReorderClips: (reordered: Clip[]) => void;
   onExport: () => void;
   exportDisabled: boolean;
+  onPlayClip?: (clipId: string, startTime: number, endTime: number) => void;
+  playingClipId?: string | null;
 }
 
 const ClipList: React.FC<ClipListProps> = ({
@@ -22,6 +24,8 @@ const ClipList: React.FC<ClipListProps> = ({
   onReorderClips,
   onExport,
   exportDisabled,
+  onPlayClip,
+  playingClipId,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -197,17 +201,35 @@ const ClipList: React.FC<ClipListProps> = ({
                     </span>
                   </div>
                 </div>
-                <button
-                  className="clip-card__delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteClip(clip.id);
-                  }}
-                  title="Hapus klip"
-                  id={`delete-clip-${clip.id}`}
-                >
-                  ✕
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                  {onPlayClip && (
+                    <button
+                      className="clip-card__delete"
+                      style={{ 
+                        color: playingClipId === clip.id ? '#1dd1a1' : 'var(--accent-primary)',
+                        opacity: playingClipId === clip.id ? 1 : 0.7 
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPlayClip(clip.id, clip.startTime, clip.endTime);
+                      }}
+                      title={playingClipId === clip.id ? "Sedang Diputar..." : "Putar Klip Ini (Preview)"}
+                    >
+                      {playingClipId === clip.id ? '🔊' : '▶️'}
+                    </button>
+                  )}
+                  <button
+                    className="clip-card__delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteClip(clip.id);
+                    }}
+                    title="Hapus klip"
+                    id={`delete-clip-${clip.id}`}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             );
           })
