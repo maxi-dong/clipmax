@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { Clip, SubtitleConfig, Word } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -520,7 +521,7 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
         </div>
       )}
 
-      {isFullScreenEditorOpen && (
+      {isFullScreenEditorOpen && createPortal(
         <div className="modal-overlay" style={{ zIndex: 9999 }}>
           <div className="modal" style={{ width: '90vw', maxWidth: '1000px', height: '80vh', display: 'flex', flexDirection: 'column', padding: '25px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -571,7 +572,8 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
               <button className="btn btn--primary" onClick={() => setIsFullScreenEditorOpen(false)}>Done</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
