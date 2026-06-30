@@ -487,7 +487,6 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
                   </div>
                 </div>
 
-                {/* Border Width */}
                 <div className="form-group" style={{ flex: '1 1 100px' }}>
                   <label>Border Size (px)</label>
                   <input 
@@ -501,21 +500,21 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
                   />
                 </div>
               </div>
+            )}
 
-              {onApplyToAll && (
-                <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid var(--border-subtle)' }}>
-                  <button 
-                    className="btn btn--secondary" 
-                    onClick={() => onApplyToAll(config)}
-                    style={{ width: '100%', background: 'linear-gradient(45deg, #10ac84, #1dd1a1)', color: 'white', border: 'none' }}
-                  >
-                    ✨ Apply to All Clips
-                  </button>
-                  <p style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '5px', marginBottom: 0 }}>
-                    Applies style to all clips and auto-transcribes clips without text.
-                  </p>
-                </div>
-              )}
+            {onApplyToAll && (
+              <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid var(--border-subtle)' }}>
+                <button 
+                  className="btn btn--secondary" 
+                  onClick={() => onApplyToAll(config)}
+                  style={{ width: '100%', background: 'linear-gradient(45deg, #10ac84, #1dd1a1)', color: 'white', border: 'none' }}
+                >
+                  ✨ Apply to All Clips
+                </button>
+                <p style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '5px', marginBottom: 0 }}>
+                  Applies style to all clips and auto-transcribes clips without text.
+                </p>
+              </div>
             )}
           </div>
         </div>

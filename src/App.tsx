@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { Clip, AppMode } from './types';
+import type { Clip, AppMode, SubtitleConfig } from './types';
 import { generateId } from './utils';
 import TitleBar from './components/TitleBar';
 import DropZone from './components/DropZone';
