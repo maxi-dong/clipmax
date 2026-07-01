@@ -5,6 +5,8 @@ mod branding;
 mod antidup;
 mod sidecar;
 pub mod face_detect;
+pub mod utils;
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

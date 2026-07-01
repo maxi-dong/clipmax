@@ -1,9 +1,9 @@
 use tauri::AppHandle;
 use tauri::Emitter;
-use std::process::Command;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use crate::sidecar::get_sidecar_path;
+use crate::utils::new_command;
 
 const WHISPER_MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
@@ -37,7 +37,9 @@ pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String>
     // Start the curl download in a blocking thread so we can poll in parallel.
     let model_path_clone = model_path.clone();
     let download_handle = std::thread::spawn(move || {
-        std::process::Command::new("curl")
+        // curl tersedia di Windows 10 1803+ secara bawaan.
+        // Jika gagal, error message akan memberi tahu pengguna untuk mengunduh model secara manual.
+        new_command("curl")
             .args([
                 "-L",
                 "-o",
@@ -138,7 +140,7 @@ pub async fn analyze_audio_spike(video_path: String, app_handle: AppHandle) -> R
     // Run ffmpeg with silencedetect
     // We detect silence, so the "non-silent" parts are our spikes/clips.
     // noise=-30dB, duration=1s means if audio is louder than -30dB, it's NOT silence.
-    let output = Command::new(&ffmpeg_path)
+    let output = new_command(&ffmpeg_path)
         .args([
             "-i", &video_path,
             "-af", "silencedetect=noise=-30dB:d=1",
@@ -204,7 +206,7 @@ pub async fn extract_and_transcribe(video_path: String, api_key: String, app_han
     let temp_audio = std::env::temp_dir().join("clipmax_audio.m4a");
 
     // 1. Extract audio using FFmpeg (32kbps, mono to keep size small for OpenAI < 25MB limit)
-    Command::new(&ffmpeg_path)
+    new_command(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-vn", "-acodec", "aac", "-b:a", "32k", "-ac", "1",
@@ -218,7 +220,7 @@ pub async fn extract_and_transcribe(video_path: String, api_key: String, app_han
     // Actually, doing HTTP requests in Rust requires `reqwest` crate, which might not be in Cargo.toml.
     // Let's use `curl` as a system command to avoid adding heavy dependencies!
     
-    let curl_output = Command::new("curl")
+    let curl_output = new_command("curl")
         .args([
             "https://api.openai.com/v1/audio/transcriptions",
             "-H", &format!("Authorization: Bearer {}", api_key),
@@ -228,7 +230,7 @@ pub async fn extract_and_transcribe(video_path: String, api_key: String, app_han
             "-F", "timestamp_granularities[]=segment"
         ])
         .output()
-        .map_err(|e| format!("Curl failed: {}", e))?;
+        .map_err(|e| format!("Curl gagal dipanggil: {}. Pastikan 'curl' tersedia di sistem Anda (Windows 10 1803+ sudah termasuk curl).", e))?;
 
     if !curl_output.status.success() {
         return Err(format!("OpenAI API error: {}", String::from_utf8_lossy(&curl_output.stderr)));
@@ -257,7 +259,7 @@ pub async fn analyze_with_openai(transcript: String, api_key: String) -> Result<
     let temp_json = std::env::temp_dir().join("clipmax_req.json");
     std::fs::write(&temp_json, payload.to_string()).map_err(|e| e.to_string())?;
 
-    let curl_output = Command::new("curl")
+    let curl_output = new_command("curl")
         .args([
             "https://api.openai.com/v1/chat/completions",
             "-H", "Content-Type: application/json",
@@ -265,7 +267,7 @@ pub async fn analyze_with_openai(transcript: String, api_key: String) -> Result<
             "-d", &format!("@{}", temp_json.to_string_lossy())
         ])
         .output()
-        .map_err(|e| format!("Curl failed: {}", e))?;
+        .map_err(|e| format!("Curl gagal dipanggil: {}. Pastikan 'curl' tersedia di sistem Anda.", e))?;
 
     if !curl_output.status.success() {
         return Err(format!("OpenAI API error: {}", String::from_utf8_lossy(&curl_output.stderr)));
@@ -310,7 +312,13 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
     let whisper_path = get_sidecar_path(&app_handle, "whisper-cli")?;
 
     let temp_dir = std::env::temp_dir();
-    let temp_wav = temp_dir.join("clipmax_audio.wav");
+    // Gunakan timestamp sebagai nama unik agar tidak terjadi race condition
+    // jika user menekan Auto Generate lebih dari satu kali secara bersamaan
+    let unique_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let temp_wav = temp_dir.join(format!("clipmax_audio_{}.wav", unique_id));
     let model_path = temp_dir.join("ggml-base.bin");
     
     // Model must already be downloaded by the frontend via download_whisper_model.
@@ -320,7 +328,7 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
     }
 
     // 2. Extract audio to 16kHz WAV
-    let ffmpeg_out = std::process::Command::new(&ffmpeg_path)
+    let ffmpeg_out = new_command(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
@@ -335,7 +343,7 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
     }
 
     // 3. Run whisper-cli sidecar
-    let output = std::process::Command::new(&whisper_path)
+    let output = new_command(&whisper_path)
         .args([
             "-m", &model_path.to_string_lossy(),
             "-f", &temp_wav.to_string_lossy(),
@@ -351,9 +359,13 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
     }
 
     // 4. Read the generated JSON
-    let json_path = temp_dir.join("clipmax_audio.wav.json");
+    let json_path = temp_dir.join(format!("clipmax_audio_{}.wav.json", unique_id));
     let transcript = std::fs::read_to_string(&json_path)
         .map_err(|e| format!("Failed to read transcript JSON: {}", e))?;
+
+    // Bersihkan file temp setelah selesai
+    let _ = std::fs::remove_file(&temp_wav);
+    let _ = std::fs::remove_file(&json_path);
 
     Ok(transcript)
 }
@@ -364,7 +376,7 @@ pub async fn analyze_with_gemini(video_path: String, api_key: String, app_handle
     let temp_audio = std::env::temp_dir().join("clipmax_gemini_audio.m4a");
 
     // 1. Extract audio using FFmpeg (compressed mono to keep payload small)
-    let ffmpeg_out = Command::new(&ffmpeg_path)
+    let ffmpeg_out = new_command(&ffmpeg_path)
         .args([
             "-y", "-i", &video_path,
             "-vn", "-acodec", "aac", "-b:a", "32k", "-ac", "1",
@@ -417,14 +429,14 @@ pub async fn analyze_with_gemini(video_path: String, api_key: String, app_handle
         api_key
     );
 
-    let curl_output = Command::new("curl")
+    let curl_output = new_command("curl")
         .args([
             "-s", &api_url,
             "-H", "Content-Type: application/json",
             "-d", &format!("@{}", temp_json.to_string_lossy())
         ])
         .output()
-        .map_err(|e| format!("Curl failed: {}", e))?;
+        .map_err(|e| format!("Curl gagal dipanggil: {}. Pastikan 'curl' tersedia di sistem Anda (Windows 10 1803+ sudah termasuk curl).", e))?;
 
     if !curl_output.status.success() {
         return Err(format!("Gemini API error: {}", String::from_utf8_lossy(&curl_output.stderr)));
@@ -500,7 +512,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
     }
 
     // 2. Slice video and convert to 16kHz WAV
-    let ffmpeg_out = std::process::Command::new(&ffmpeg_path)
+    let ffmpeg_out = new_command(&ffmpeg_path)
         .args([
             "-y", 
             "-ss", &start_time.to_string(),
@@ -518,7 +530,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
     }
 
     // 3. Run whisper-cli sidecar — force word-level timestamps
-    let output = std::process::Command::new(&whisper_path)
+    let output = new_command(&whisper_path)
         .args([
             "-m", &model_path.to_string_lossy(),
             "-f", &temp_wav.to_string_lossy(),

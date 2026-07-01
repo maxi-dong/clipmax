@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::path::{Path, PathBuf};
 use std::fs;
 use tauri::{AppHandle, Emitter};
 use crate::sidecar::get_sidecar_path;
+use crate::utils::{new_command, ass_path_for_ffmpeg};
 
 use crate::branding::build_branding_filter;
 use crate::antidup::build_antidup_filter;
@@ -300,8 +300,10 @@ pub async fn export_clips(
                         let ass_path = temp_dir.join(format!("subtitles_{}.ass", clip.id));
                         let _ = fs::write(&ass_path, ass_content);
                         _ass_path_opt = Some(ass_path.clone());
-                        
-                        let safe_path = ass_path.to_string_lossy().replace("\\", "/");
+
+                        // Gunakan helper untuk menghasilkan path yang aman di Windows
+                        // (escape backslash & titik dua drive letter agar FFmpeg tidak gagal)
+                        let safe_path = ass_path_for_ffmpeg(&ass_path);
                         let ass_filter = format!("ass='{}'", safe_path);
 
                         let next_label = format!("[v{}]", filter_step);
@@ -404,7 +406,8 @@ pub async fn export_clips(
                 let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")
                     .map_err(|e| format!("Failed to get ffmpeg path: {}", e))?;
 
-                let output = Command::new(&ffmpeg_path)
+                // Gunakan new_command() agar tidak muncul jendela terminal di Windows
+                let output = new_command(&ffmpeg_path)
                     .args(&args)
                     .output();
 

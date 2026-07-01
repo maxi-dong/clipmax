@@ -1,8 +1,8 @@
 use std::fs;
-use std::process::Command;
 use rustface::{Detector, ImageData};
 use tauri::Manager;
 use crate::sidecar::get_sidecar_path;
+use crate::utils::new_command;
 
 pub fn detect_best_face_x(
     app_handle: &tauri::AppHandle,
@@ -40,7 +40,8 @@ pub fn detect_best_face_x(
     
     let ffmpeg_path = get_sidecar_path(app_handle, "ffmpeg")?;
     
-    let output = Command::new(&ffmpeg_path)
+    // Gunakan new_command() agar FFmpeg tidak membuka jendela terminal di Windows
+    let output = new_command(&ffmpeg_path)
         .args(&[
             "-ss", &mid_time.to_string(),
             "-i", video_path,

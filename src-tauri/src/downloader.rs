@@ -1,8 +1,9 @@
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 use std::io::{BufRead, BufReader};
 use crate::sidecar::get_sidecar_path;
+use crate::utils::new_command;
 
 #[derive(Clone, serde::Serialize)]
 struct DownloadProgressPayload {
@@ -37,7 +38,8 @@ pub async fn download_video(url: String, app_handle: AppHandle) -> Result<String
     let err_file_path = temp_dir.join("yt_dlp_err.log");
     let err_file = std::fs::File::create(&err_file_path).map_err(|e| e.to_string())?;
     
-    let mut child = Command::new(&ytdlp_path)
+    // Gunakan new_command() agar yt-dlp tidak membuka jendela terminal di Windows
+    let mut child = new_command(&ytdlp_path)
         .env("PATH", new_path)
         .args([
             &url,
