@@ -25,23 +25,46 @@ pub async fn check_whisper_model() -> bool {
 pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String> {
     let model_path = whisper_model_path();
 
-    // Already exists — nothing to do.
+    // Jika file sudah ada, validasi ukurannya agar tidak corrupt.
+    // File yang corrupt (hasil download gagal di tengah jalan) akan dihapus dan diunduh ulang.
     if model_path.exists() {
-        let _ = app_handle.emit(
-            "whisper-download-progress",
-            serde_json::json!({ "percent": 100.0, "downloaded_mb": 147.9, "total_mb": 147.9 }),
-        );
-        return Ok(());
+        let actual_size = model_path.metadata().map(|m| m.len()).unwrap_or(0);
+        let expected_size = WHISPER_MODEL_SIZE_BYTES;
+        
+        // Toleransi ±1MB untuk variasi versi minor
+        if actual_size >= expected_size - 1_048_576 {
+            // File valid — laporkan selesai
+            let _ = app_handle.emit(
+                "whisper-download-progress",
+                serde_json::json!({ "percent": 100.0, "downloaded_mb": 147.9, "total_mb": 147.9 }),
+            );
+            return Ok(());
+        } else {
+            // File corrupt/tidak lengkap — hapus dan unduh ulang
+            let _ = std::fs::remove_file(&model_path);
+            let _ = app_handle.emit(
+                "whisper-download-progress",
+                serde_json::json!({
+                    "percent": 0.0,
+                    "downloaded_mb": 0.0,
+                    "total_mb": 147.9,
+                    "status": "re-downloading"
+                }),
+            );
+        }
     }
 
     // Start the curl download in a blocking thread so we can poll in parallel.
     let model_path_clone = model_path.clone();
     let download_handle = std::thread::spawn(move || {
         // curl tersedia di Windows 10 1803+ secara bawaan.
-        // Jika gagal, error message akan memberi tahu pengguna untuk mengunduh model secara manual.
+        // Gunakan --fail agar curl mengembalikan error jika server merespons error (misal redirect ke HTML)
         new_command("curl")
             .args([
-                "-L",
+                "-L",           // Ikuti redirect (penting untuk HuggingFace)
+                "--fail",       // Gagal jika server merespons HTTP error (bukan binary)
+                "--retry", "3", // Coba lagi 3x jika koneksi putus
+                "--retry-delay", "2",
                 "-o",
                 &model_path_clone.to_string_lossy(),
                 WHISPER_MODEL_URL,
@@ -82,20 +105,45 @@ pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String>
     // Join the thread and check for errors.
     match download_handle.join() {
         Ok(Ok(output)) if output.status.success() => {
+            // Validasi akhir: pastikan file yang diunduh ukurannya benar
+            let actual_size = model_path.metadata().map(|m| m.len()).unwrap_or(0);
+            let expected_size = WHISPER_MODEL_SIZE_BYTES;
+            
+            if actual_size < expected_size - 1_048_576 {
+                // File corrupt — hapus agar bisa diunduh ulang next time
+                let _ = std::fs::remove_file(&model_path);
+                return Err(format!(
+                    "Download selesai tapi file corrupt (ukuran: {} MB, seharusnya ~148 MB). \
+                     Silakan coba klik 'Auto Generate' lagi untuk mengunduh ulang.",
+                    actual_size / 1_048_576
+                ));
+            }
+
             let _ = app_handle.emit(
                 "whisper-download-progress",
                 serde_json::json!({ "percent": 100.0, "downloaded_mb": total_mb, "total_mb": total_mb }),
             );
             Ok(())
         }
-        Ok(Ok(output)) => Err(format!(
-            "Download gagal: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )),
-        Ok(Err(e)) => Err(format!("Gagal menjalankan curl: {}", e)),
-        Err(_) => Err("Download thread panic".to_string()),
+        Ok(Ok(output)) => {
+            // curl gagal — hapus file yang mungkin sudah sebagian tertulis
+            let _ = std::fs::remove_file(&model_path);
+            Err(format!(
+                "Download model Whisper gagal. Pastikan koneksi internet stabil.\nDetail: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        },
+        Ok(Err(e)) => {
+            let _ = std::fs::remove_file(&model_path);
+            Err(format!("Gagal menjalankan curl untuk download model: {}.\nPastikan 'curl' tersedia di sistem Anda.", e))
+        },
+        Err(_) => {
+            let _ = std::fs::remove_file(&model_path);
+            Err("Download thread mengalami crash. Silakan coba lagi.".to_string())
+        },
     }
 }
+
 
 fn to_base64(bytes: &[u8]) -> String {
     const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

@@ -21,7 +21,12 @@ pub fn detect_best_face_x(
     }
     
     if !model_path.exists() {
-        return Err("seeta_fd_frontal_v1.0.bin model file not found".into());
+        return Err(format!(
+            "Model deteksi wajah 'seeta_fd_frontal_v1.0.bin' tidak ditemukan.\n\
+            Dicari di lokasi:\n1. {}\n\n\
+            Pastikan file ini ada, atau jalankan 'npm run download-sidecars' untuk mengunduhnya sebelum build.",
+            model_path.to_string_lossy()
+        ));
     }
         
     let mut detector = rustface::create_detector(model_path.to_str().unwrap())

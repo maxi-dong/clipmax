@@ -144,7 +144,10 @@ pub async fn export_clips(
                     },
                 );
 
-                let output_filename = format!("{:03}_{}.mp4", index + 1, clip.name.replace(" ", "_"));
+                let safe_clip_name = clip.name
+                    .replace(['<', '>', ':', '"', '/', '\\', '|', '?', '*'], "")
+                    .replace(" ", "_");
+                let output_filename = format!("{:03}_{}.mp4", index + 1, safe_clip_name);
                 let output_path = output_dir.join(&output_filename);
 
                 let mut args = vec![
