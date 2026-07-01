@@ -166,7 +166,7 @@ body {
 .app-layout {
   display: grid;
   grid-template-columns: 1fr 320px;
-  grid-template-rows: 48px 1fr auto;
+  grid-template-rows: 48px 1fr 160px;
   grid-template-areas:
     "titlebar titlebar"
     "main    sidebar"
