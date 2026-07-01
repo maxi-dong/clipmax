@@ -324,6 +324,7 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
         .args([
             "-y", "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            "-af", "afftdn,loudnorm",
             &temp_wav.to_string_lossy()
         ])
         .output()
