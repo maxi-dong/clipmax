@@ -93,7 +93,7 @@ jobs:
           cd whisper-cpp
           
           Write-Host "Building whisper-cli..."
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF
           cmake --build build --config Release --target whisper-cli
 
           $BINARIES_DIR = "${env:GITHUB_WORKSPACE}\src-tauri\binaries"
