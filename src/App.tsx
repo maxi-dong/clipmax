@@ -564,6 +564,13 @@ function App() {
     await new Promise(resolve => setTimeout(resolve, 100)); // allow UI to update
     
     try {
+      const modelType = localStorage.getItem('clipmax_whisper_model') || 'base';
+      const modelReady = await ensureWhisperModel(modelType);
+      if (!modelReady) {
+        setIsAnalyzing(false);
+        return;
+      }
+
       const updatedClips = [...clips];
       let hasChanges = false;
       
@@ -577,7 +584,8 @@ function App() {
            const transcript = await invoke<string>('generate_clip_transcript', {
              videoPath: videoPath,
              startTime: clip.startTime,
-             endTime: clip.endTime
+             endTime: clip.endTime,
+             modelType: modelType
            }).catch(() => null);
            
            if (transcript) {

@@ -394,7 +394,7 @@ pub async fn transcribe_local(video_path: String, model_type: String, app_handle
         .args([
             "-y", "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-            "-af", "afftdn,loudnorm",
+            "-af", "afftdn,highpass=f=100,lowpass=f=7000,loudnorm",
             &temp_wav.to_string_lossy()
         ])
         .output()
@@ -560,13 +560,13 @@ pub struct WordTiming {
 }
 
 #[tauri::command]
-pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_time: f64, app_handle: AppHandle) -> Result<String, String> {
+pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_time: f64, model_type: String, app_handle: AppHandle) -> Result<String, String> {
     let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let whisper_path = get_sidecar_path(&app_handle, "whisper-cli")?;
 
     let temp_dir = std::env::temp_dir();
     let temp_wav = temp_dir.join(format!("clipmax_seg_{}_{}.wav", start_time as u64, end_time as u64));
-    let model_path = temp_dir.join("ggml-base.bin");
+    let model_path = whisper_model_path(&model_type);
     
     // Model must already be downloaded by the frontend via download_whisper_model.
     if !model_path.exists() {
@@ -581,7 +581,7 @@ pub async fn generate_clip_transcript(video_path: String, start_time: f64, end_t
             "-to", &end_time.to_string(),
             "-i", &video_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-            "-af", "afftdn,loudnorm",
+            "-af", "afftdn,highpass=f=100,lowpass=f=7000,loudnorm",
             &temp_wav.to_string_lossy()
         ])
         .output()
