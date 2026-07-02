@@ -13,12 +13,18 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
   const [keyword, setKeyword] = useState('');
   const [clipDuration, setClipDuration] = useState<number>(30);
   const [splitDuration, setSplitDuration] = useState<number>(60);
+  const [whisperModel, setWhisperModel] = useState<string>('base');
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(true);
   const [keyCleared, setKeyCleared] = useState(false);
 
-  // Load saved API key when mode changes to a cloud mode
+  // Load saved API key and whisper model
   useEffect(() => {
+    const savedModel = localStorage.getItem('clipmax_whisper_model');
+    if (savedModel) {
+      setWhisperModel(savedModel);
+    }
+    
     if (mode === 'openai' || mode === 'gemini') {
       const saved = localStorage.getItem(STORAGE_KEY_PREFIX + mode) || '';
       setApiKey(saved);
@@ -55,6 +61,11 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
 
   const handleSubmit = () => {
     let options: any = {};
+    if (mode === 'keyword') {
+      options.whisperModel = whisperModel;
+      localStorage.setItem('clipmax_whisper_model', whisperModel);
+    }
+    
     if (mode === 'keyword') {
       if (!keyword.trim()) return alert('Please enter at least one keyword');
       options.keyword = keyword;
@@ -157,6 +168,26 @@ const AIDialog: React.FC<AIDialogProps> = ({ isOpen, onClose, onAnalyze }) => {
               </div>
             </div>
           </div>
+
+          {/* Whisper Model Selection (for local STT modes) */}
+          {mode === 'keyword' && (
+            <div className="form-group animate-fadeIn" style={{ marginTop: '15px' }}>
+              <label>Ukuran Model AI (Whisper)</label>
+              <select
+                className="form-control"
+                value={whisperModel}
+                onChange={(e) => setWhisperModel(e.target.value)}
+                style={{ cursor: 'pointer', marginBottom: '5px' }}
+              >
+                <option value="tiny">Tiny (~74 MB) - Tercepat, akurasi rendah</option>
+                <option value="base">Base (~141 MB) - Seimbang (Rekomendasi)</option>
+                <option value="small">Small (~465 MB) - Lebih akurat, lebih lambat</option>
+              </select>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Model akan diunduh otomatis jika belum ada.
+              </div>
+            </div>
+          )}
 
           {/* Keyword options */}
           {mode === 'keyword' && (

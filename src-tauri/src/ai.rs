@@ -5,38 +5,53 @@ use serde::{Deserialize, Serialize};
 use crate::sidecar::get_sidecar_path;
 use crate::utils::new_command;
 
-const WHISPER_MODEL_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
-const WHISPER_MODEL_SIZE_BYTES: u64 = 147_951_465; // ~141 MB
+fn get_whisper_model_info(model_type: &str) -> (String, u64) {
+    match model_type {
+        "tiny" => (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin".to_string(),
+            77_691_713, // ~74 MB
+        ),
+        "small" => (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin".to_string(),
+            487_601_967, // ~465 MB
+        ),
+        _ => ( // Default to base
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin".to_string(),
+            147_951_465, // ~141 MB
+        ),
+    }
+}
 
-fn whisper_model_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("ggml-base.bin")
+fn whisper_model_path(model_type: &str) -> std::path::PathBuf {
+    let filename = format!("ggml-{}.bin", if model_type == "tiny" || model_type == "small" { model_type } else { "base" });
+    std::env::temp_dir().join(filename)
 }
 
 /// Returns true if the Whisper model file already exists on disk.
 #[tauri::command]
-pub async fn check_whisper_model() -> bool {
-    whisper_model_path().exists()
+pub async fn check_whisper_model(model_type: String) -> bool {
+    whisper_model_path(&model_type).exists()
 }
 
 /// Downloads the Whisper base model and emits `whisper-download-progress` events.
 /// Payload: { percent: f32, downloaded_mb: f32, total_mb: f32 }
 #[tauri::command]
-pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String> {
-    let model_path = whisper_model_path();
+pub async fn download_whisper_model(model_type: String, app_handle: AppHandle) -> Result<(), String> {
+    let model_path = whisper_model_path(&model_type);
+    let (model_url, expected_size) = get_whisper_model_info(&model_type);
+    let total_mb_expected = expected_size as f64 / 1_048_576.0;
 
     // Jika file sudah ada, validasi ukurannya agar tidak corrupt.
     // File yang corrupt (hasil download gagal di tengah jalan) akan dihapus dan diunduh ulang.
     if model_path.exists() {
         let actual_size = model_path.metadata().map(|m| m.len()).unwrap_or(0);
-        let expected_size = WHISPER_MODEL_SIZE_BYTES;
         
         // Toleransi ±1MB untuk variasi versi minor
-        if actual_size >= expected_size - 1_048_576 {
+        if actual_size >= expected_size.saturating_sub(1_048_576) {
             // File valid — laporkan selesai
             let _ = app_handle.emit(
                 "whisper-download-progress",
-                serde_json::json!({ "percent": 100.0, "downloaded_mb": 147.9, "total_mb": 147.9 }),
+                serde_json::json!({ "percent": 100.0, "downloaded_mb": total_mb_expected, "total_mb": total_mb_expected }),
             );
             return Ok(());
         } else {
@@ -47,7 +62,7 @@ pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String>
                 serde_json::json!({
                     "percent": 0.0,
                     "downloaded_mb": 0.0,
-                    "total_mb": 147.9,
+                    "total_mb": total_mb_expected,
                     "status": "re-downloading"
                 }),
             );
@@ -67,14 +82,14 @@ pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String>
                 "--retry-delay", "2",
                 "-o",
                 &model_path_clone.to_string_lossy(),
-                WHISPER_MODEL_URL,
+                &model_url,
             ])
             .output()
     });
 
     // Poll file size every 400ms and emit progress events.
-    let total_bytes = WHISPER_MODEL_SIZE_BYTES as f64;
-    let total_mb = total_bytes / 1_048_576.0;
+    let total_bytes = expected_size as f64;
+    let total_mb = total_mb_expected;
 
     loop {
         // Check if download thread is done.
@@ -107,15 +122,14 @@ pub async fn download_whisper_model(app_handle: AppHandle) -> Result<(), String>
         Ok(Ok(output)) if output.status.success() => {
             // Validasi akhir: pastikan file yang diunduh ukurannya benar
             let actual_size = model_path.metadata().map(|m| m.len()).unwrap_or(0);
-            let expected_size = WHISPER_MODEL_SIZE_BYTES;
             
-            if actual_size < expected_size - 1_048_576 {
+            if actual_size < expected_size.saturating_sub(1_048_576) {
                 // File corrupt — hapus agar bisa diunduh ulang next time
                 let _ = std::fs::remove_file(&model_path);
                 return Err(format!(
-                    "Download selesai tapi file corrupt (ukuran: {} MB, seharusnya ~148 MB). \
+                    "Download selesai tapi file corrupt (ukuran: {} MB, seharusnya ~{} MB). \
                      Silakan coba klik 'Auto Generate' lagi untuk mengunduh ulang.",
-                    actual_size / 1_048_576
+                    actual_size / 1_048_576, total_mb_expected
                 ));
             }
 
@@ -355,7 +369,7 @@ pub async fn analyze_with_openai(transcript: String, api_key: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Result<String, String> {
+pub async fn transcribe_local(video_path: String, model_type: String, app_handle: AppHandle) -> Result<String, String> {
     let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")?;
     let whisper_path = get_sidecar_path(&app_handle, "whisper-cli")?;
 
@@ -367,7 +381,7 @@ pub async fn transcribe_local(video_path: String, app_handle: AppHandle) -> Resu
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let temp_wav = temp_dir.join(format!("clipmax_audio_{}.wav", unique_id));
-    let model_path = temp_dir.join("ggml-base.bin");
+    let model_path = whisper_model_path(&model_type);
     
     // Model must already be downloaded by the frontend via download_whisper_model.
     // If it's missing, return a clear error.

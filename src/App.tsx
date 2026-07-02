@@ -192,8 +192,8 @@ function App() {
   }, []);
 
   // Issue 3: Whisper model check + download flow
-  const ensureWhisperModel = useCallback(async (): Promise<boolean> => {
-    const modelExists = await invoke<boolean>('check_whisper_model');
+  const ensureWhisperModel = useCallback(async (modelType: string): Promise<boolean> => {
+    const modelExists = await invoke<boolean>('check_whisper_model', { modelType });
     if (modelExists) return true;
 
     // Model missing — show download modal
@@ -213,7 +213,7 @@ function App() {
     );
 
     try {
-      await invoke('download_whisper_model');
+      await invoke('download_whisper_model', { modelType });
       return !whisperDownloadCancelRef.current;
     } catch (e) {
       setAiNotification({ type: 'error', message: `Gagal mengunduh model Whisper:\n${e}` });
@@ -242,7 +242,10 @@ function App() {
     // Issue 3: For Whisper-based modes, ensure model is downloaded first
     const needsWhisper = aiMode === 'keyword' || aiMode === 'audio_spike';
     if (needsWhisper) {
-      const ready = await ensureWhisperModel();
+      // Audio spike doesn't actually use whisper currently (it uses ffmpeg level analysis),
+      // but let's keep the safeguard if it did. Only keyword mode actually passes a model.
+      const model = options.whisperModel || 'base';
+      const ready = await ensureWhisperModel(model);
       if (!ready) return;
     }
 
@@ -338,7 +341,8 @@ function App() {
 
         console.log("[AI] Calling transcribe_local...");
         const transcript = await invoke<string>('transcribe_local', { 
-          videoPath: videoPath 
+          videoPath: videoPath,
+          modelType: options.whisperModel || 'base'
         });
 
         const parsed = JSON.parse(transcript);

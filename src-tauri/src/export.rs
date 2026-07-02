@@ -88,6 +88,36 @@ fn hex_to_ass_color(hex: &str) -> String {
 }
 
 
+fn detect_hardware_encoder(ffmpeg_path: &str) -> String {
+    let encoders = if cfg!(target_os = "windows") {
+        vec!["h264_nvenc", "h264_qsv", "h264_amf"]
+    } else if cfg!(target_os = "macos") {
+        vec!["h264_videotoolbox"]
+    } else {
+        vec![]
+    };
+
+    for enc in encoders {
+        let output = new_command(ffmpeg_path)
+            .args([
+                "-f", "lavfi",
+                "-i", "color=c=black:s=128x128:d=0.1",
+                "-c:v", enc,
+                "-f", "null",
+                "-"
+            ])
+            .output();
+        
+        if let Ok(o) = output {
+            if o.status.success() {
+                return enc.to_string();
+            }
+        }
+    }
+    
+    "libx264".to_string()
+}
+
 #[derive(Clone, serde::Serialize)]
 struct ProgressPayload {
     clip_id: String,
@@ -103,6 +133,11 @@ pub async fn export_clips(
 ) -> Result<String, String> {
     // Note: In reality, video_src here might be a blob URL or object URL.
     // We would need the real file path. We'll assume the frontend passes the real path soon.
+    
+    let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")
+        .map_err(|e| format!("Failed to get ffmpeg path: {}", e))?;
+    let best_encoder = detect_hardware_encoder(&ffmpeg_path.to_string_lossy());
+    println!("Selected hardware encoder: {}", best_encoder);
 
     let input_path = Path::new(&video_src);
     let parent_dir = if let Some(dir) = &config.output_dir {
@@ -133,6 +168,9 @@ pub async fn export_clips(
             let config = config.clone();
             let output_dir = output_dir.clone();
 
+            let ffmpeg_path = ffmpeg_path.clone();
+            let best_encoder = best_encoder.clone();
+            
             let handle = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
                 println!("Processing clip: {}", clip.name);
 
@@ -392,22 +430,30 @@ pub async fn export_clips(
                 }
 
                 args.push("-c:v".to_string());
-                args.push("libx264".to_string());
+                args.push(best_encoder.clone());
                 
-                match config.quality.as_str() {
-                    "High" => { args.push("-crf".to_string()); args.push("18".to_string()); },
-                    "Medium" => { args.push("-crf".to_string()); args.push("23".to_string()); },
-                    "Low" => { args.push("-crf".to_string()); args.push("28".to_string()); },
-                    _ => { args.push("-crf".to_string()); args.push("23".to_string()); },
+                if best_encoder == "libx264" {
+                    match config.quality.as_str() {
+                        "High" => { args.push("-crf".to_string()); args.push("18".to_string()); },
+                        "Medium" => { args.push("-crf".to_string()); args.push("23".to_string()); },
+                        "Low" => { args.push("-crf".to_string()); args.push("28".to_string()); },
+                        _ => { args.push("-crf".to_string()); args.push("23".to_string()); },
+                    }
+                } else {
+                    // For hardware encoders (NVENC, QSV, AMF, VideoToolbox), 
+                    // use constant bitrate for compatibility since they handle CRF differently.
+                    match config.quality.as_str() {
+                        "High" => { args.push("-b:v".to_string()); args.push("8M".to_string()); },
+                        "Medium" => { args.push("-b:v".to_string()); args.push("4M".to_string()); },
+                        "Low" => { args.push("-b:v".to_string()); args.push("2M".to_string()); },
+                        _ => { args.push("-b:v".to_string()); args.push("4M".to_string()); },
+                    }
                 }
 
                 args.push("-c:a".to_string());
                 args.push("aac".to_string());
                 
                 args.push(output_path.to_string_lossy().to_string());
-
-                let ffmpeg_path = get_sidecar_path(&app_handle, "ffmpeg")
-                    .map_err(|e| format!("Failed to get ffmpeg path: {}", e))?;
 
                 // Gunakan new_command() agar tidak muncul jendela terminal di Windows
                 let output = new_command(&ffmpeg_path)
