@@ -60,10 +60,12 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ clip, videoPath, onUpda
     if (!videoPath) return alert('Video path not found.');
     setIsGenerating(true);
     try {
+      const modelType = localStorage.getItem('clipmax_whisper_model') || 'base';
       const transcript = await invoke<string>('generate_clip_transcript', {
         videoPath,
         startTime: clip.startTime,
-        endTime: clip.endTime
+        endTime: clip.endTime,
+        modelType: modelType
       });
       
       const parsed = JSON.parse(transcript);
